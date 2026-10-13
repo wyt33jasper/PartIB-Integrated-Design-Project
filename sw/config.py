@@ -45,8 +45,14 @@ TURN_TRACKER_R_PIN = 21     # CHECK - outer right
 LINE_WHITE_IS_HIGH = True   # CHECK with test_line_sensors.py
 
 # ----------------------------------------------------------- line following
+# The steering correction has to scale with speed: too little and the AGV
+# runs wide on bends, too much and it saws across the line. tools/tune.py
+# sweeps both and reports how far the AGV strays. A ratio of roughly
+# steer = speed / 3 tracked cleanly across the whole speed range; 80/30 was
+# the fastest pair that still held the line in simulation, worth trying once
+# 60/20 is working on the real table.
 FOLLOW_SPEED = 60           # cruise speed, 0-100
-FOLLOW_STEER = 40           # differential correction applied when off centre
+FOLLOW_STEER = 20           # differential correction applied when off centre
 RECOVER_SPEED = 35          # reverse speed when the line is lost
 LOST_TIMEOUT_MS = 2000      # stop after this long with no line at all;
                             # set to 0 to reverse indefinitely
