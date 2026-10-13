@@ -1,30 +1,76 @@
-from test_led import test_led
-from test_led_pwm import test_led_pwm
-from test_input import test_input_poll
-from test_motor import test_motor3
-from test_linear_actuator import test_actuator1
-from test_tcs3472 import test_tcs3472
-from test_vl53l0x import test_vl53l0x
-from test_mfrc522 import test_mfrc522
-from test_TMF8x01_get_distance import test_TMF8x01_get_distance
-from test_STU_22L_IO_Mode import test_STU_22L_IO_Mode
-from test_STU_22L_UART import test_STU_22L_UART
-from test_tiny_code_reader import test_tiny_code_reader
+"""AGV main program - IDP M1 2026.
 
-print("Welcome to main.py!")
+Implements the team flowchart:
 
-# Uncomment the test to run
-# test_led()
-# test_led_pwm()
-# test_input_poll()
-# test_motor3()
-# test_tcs3472()
-# test_actuator1()
-# test_vl53l0x()
-# test_mfrc522()
-# test_TMF8x01_get_distance()
-# test_STU_22L_IO_Mode()
-# test_STU_22L_UART()
-# test_tiny_code_reader()
+    Main --> [stop button pressed?] --yes--> End
+                     | no
+                     v
+              Flash amber LED
+                     v
+               Line follower
+                     |
+                     +--------> back to the stop check
 
-print("main.py Done!")
+Two rules hold the design together:
+
+  * Nothing inside the loop blocks.  Each call returns immediately, so the
+    stop button is tested every few milliseconds rather than whenever a
+    sleep() happens to finish.
+  * The motors are stopped on every exit path, including an unhandled
+    exception, so a software fault cannot leave the AGV driving.
+
+main.py runs automatically when the Pico is powered up, so the AGV waits for
+a deliberate start press before it moves.
+"""
+
+from utime import sleep_ms
+
+import config
+from drivers.button import Button
+from drivers.drive import Drive
+from drivers.indicators import FlashingLamp
+from nav.follower import LineFollower
+
+
+def run(button, beacon, drive, follower):
+    """The flowchart loop.  Returns when the stop button is pressed."""
+    beacon.on()                         # amber beacon on - the AGV is live
+
+    while True:
+        # --- stop button pressed? --------------------------------------
+        if button.was_pressed():
+            return                      # --> End
+
+        # --- flash LED -------------------------------------------------
+        beacon.update()                 # toggles only when 250 ms has passed
+
+        # --- line follower ---------------------------------------------
+        follower.tick()                 # one control step, then straight back
+
+        sleep_ms(config.LOOP_PERIOD_MS)
+
+
+def main():
+    button = Button(config.BUTTON_PIN,
+                    active_high=config.BUTTON_ACTIVE_HIGH,
+                    debounce_ms=config.BUTTON_DEBOUNCE_MS)
+    beacon = FlashingLamp(config.AMBER_LED_PIN, config.AMBER_FLASH_MS)
+    drive = Drive(config.LEFT_MOTOR_DIR_PIN, config.LEFT_MOTOR_PWM_PIN,
+                  config.RIGHT_MOTOR_DIR_PIN, config.RIGHT_MOTOR_PWM_PIN)
+    follower = LineFollower(drive)
+
+    print("AGV ready - press the button to start")
+    button.wait_for_press()
+
+    try:
+        run(button, beacon, drive, follower)
+    finally:
+        # Runs on a normal stop, on Ctrl-C from Thonny, and on any unhandled
+        # exception raised inside the loop.
+        drive.stop()
+        beacon.off()
+        print("AGV stopped")
+
+
+if __name__ == "__main__":
+    main()

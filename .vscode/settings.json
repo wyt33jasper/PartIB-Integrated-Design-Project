@@ -1,0 +1,40 @@
+{
+    // --- MicroPico -----------------------------------------------------
+    // Only sw/ is uploaded to the Pico. instructions/ and school-ref/ are
+    // reference material and must never be pushed to the board.
+    "micropico.syncFolder": "sw",
+    "micropico.openOnStart": true,
+    "micropico.softResetAfterUpload": true,
+    "micropico.pyIgnore": [
+        "**/.picowgo",
+        "**/.micropico",
+        "**/.vscode",
+        "**/.gitignore",
+        "**/.git",
+        "**/.DS_Store",
+        "**/__pycache__",
+        "**/env",
+        "**/venv",
+        "**/.venv",
+        "**/.idea",
+        "instructions/**",
+        "school-ref/**"
+    ],
+
+    // --- Python / Pylance ----------------------------------------------
+    // Matches the department's recommended setup so that MicroPython stubs
+    // (machine, utime, ...) resolve instead of showing as missing imports.
+    "python.languageServer": "Pylance",
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingModuleSource": "none"
+    },
+    "python.terminal.activateEnvironment": false,
+    "python.analysis.typeshedPaths": [
+        "~/.micropico-stubs/included"
+    ],
+    "python.analysis.extraPaths": [
+        "~/.micropico-stubs/included",
+        "sw"
+    ]
+}
