@@ -29,6 +29,7 @@ import config
 from drivers.button import Button
 from drivers.drive import Drive
 from drivers.indicators import FlashingLamp
+from drivers.line_sensor import LineSensorArray
 from nav.follower import LineFollower
 
 
@@ -57,7 +58,16 @@ def main():
     beacon = FlashingLamp(config.AMBER_LED_PIN, config.AMBER_FLASH_MS)
     drive = Drive(config.LEFT_MOTOR_DIR_PIN, config.LEFT_MOTOR_PWM_PIN,
                   config.RIGHT_MOTOR_DIR_PIN, config.RIGHT_MOTOR_PWM_PIN)
-    follower = LineFollower(drive)
+    sensors = LineSensorArray(config.LINE_TRACKER_L_PIN,
+                              config.LINE_TRACKER_R_PIN,
+                              config.TURN_TRACKER_L_PIN,
+                              config.TURN_TRACKER_R_PIN,
+                              white_is_high=config.LINE_WHITE_IS_HIGH)
+    follower = LineFollower(drive, sensors,
+                            speed=config.FOLLOW_SPEED,
+                            steer=config.FOLLOW_STEER,
+                            reverse_speed=config.RECOVER_SPEED,
+                            lost_timeout_ms=config.LOST_TIMEOUT_MS)
 
     print("AGV ready - press the button to start")
     button.wait_for_press()

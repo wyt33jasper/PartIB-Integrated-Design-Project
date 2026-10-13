@@ -30,3 +30,23 @@ RIGHT_MOTOR_PWM_PIN = 7
 # ---------------------------------------------------------------- main loop
 LOOP_PERIOD_MS = 5          # target main-loop period; keeps the button poll
                             # rate high and the line follower responsive
+
+# -------------------------------------------------------------- line sensors
+# Four sensors, the maximum allowed. The inner pair straddles the line, the
+# outer pair looks for junction markings.
+LINE_TRACKER_L_PIN = 18     # CHECK - inner left
+LINE_TRACKER_R_PIN = 19     # CHECK - inner right
+TURN_TRACKER_L_PIN = 20     # CHECK - outer left
+TURN_TRACKER_R_PIN = 21     # CHECK - outer right
+
+# The PicoBot guide specifies TTL HIGH over white, LOW over black. Flip this
+# if the bench test reports the opposite - the AGV would otherwise steer away
+# from the line instead of towards it.
+LINE_WHITE_IS_HIGH = True   # CHECK with test_line_sensors.py
+
+# ----------------------------------------------------------- line following
+FOLLOW_SPEED = 60           # cruise speed, 0-100
+FOLLOW_STEER = 40           # differential correction applied when off centre
+RECOVER_SPEED = 35          # reverse speed when the line is lost
+LOST_TIMEOUT_MS = 2000      # stop after this long with no line at all;
+                            # set to 0 to reverse indefinitely
