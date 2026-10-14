@@ -31,11 +31,16 @@ def _label(value):
 
 
 def test_line_sensors():
-    sensors = LineSensorArray(config.LINE_TRACKER_L_PIN,
-                              config.LINE_TRACKER_R_PIN,
-                              config.TURN_TRACKER_L_PIN,
-                              config.TURN_TRACKER_R_PIN,
-                              white_is_high=config.LINE_WHITE_IS_HIGH)
+    sensors = LineSensorArray(
+        config.LINE_TRACKER_L_PIN,
+        config.LINE_TRACKER_R_PIN,
+        config.TURN_TRACKER_L_PIN if config.TURN_TRACKERS_FITTED else None,
+        config.TURN_TRACKER_R_PIN if config.TURN_TRACKERS_FITTED else None,
+        white_is_high=config.LINE_WHITE_IS_HIGH)
+
+    if not sensors.has_turn_trackers:
+        print("outer pair not fitted - turnL and turnR will always read black")
+
 
     print("turnL  lineL  lineR  turnR   | follower would:")
     print("-" * 52)

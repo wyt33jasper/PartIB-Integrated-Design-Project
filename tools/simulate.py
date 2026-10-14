@@ -108,11 +108,12 @@ class SimulatedAGV:
 
         self.drive = Drive(config.LEFT_MOTOR_DIR_PIN, config.LEFT_MOTOR_PWM_PIN,
                            config.RIGHT_MOTOR_DIR_PIN, config.RIGHT_MOTOR_PWM_PIN)
-        self.sensors = LineSensorArray(config.LINE_TRACKER_L_PIN,
-                                       config.LINE_TRACKER_R_PIN,
-                                       config.TURN_TRACKER_L_PIN,
-                                       config.TURN_TRACKER_R_PIN,
-                                       white_is_high=config.LINE_WHITE_IS_HIGH)
+        self.sensors = LineSensorArray(
+            config.LINE_TRACKER_L_PIN,
+            config.LINE_TRACKER_R_PIN,
+            config.TURN_TRACKER_L_PIN if config.TURN_TRACKERS_FITTED else None,
+            config.TURN_TRACKER_R_PIN if config.TURN_TRACKERS_FITTED else None,
+            white_is_high=config.LINE_WHITE_IS_HIGH)
         self.follower = LineFollower(self.drive, self.sensors,
                                      speed=config.FOLLOW_SPEED if speed is None else speed,
                                      steer=config.FOLLOW_STEER if steer is None else steer,
@@ -127,12 +128,15 @@ class SimulatedAGV:
         return x, y
 
     def _update_sensor_pins(self):
-        placement = (
+        placement = [
             (config.LINE_TRACKER_L_PIN, +LINE_TRACKER_OFFSET_MM),
             (config.LINE_TRACKER_R_PIN, -LINE_TRACKER_OFFSET_MM),
-            (config.TURN_TRACKER_L_PIN, +TURN_TRACKER_OFFSET_MM),
-            (config.TURN_TRACKER_R_PIN, -TURN_TRACKER_OFFSET_MM),
-        )
+        ]
+        if config.TURN_TRACKERS_FITTED:
+            placement += [
+                (config.TURN_TRACKER_L_PIN, +TURN_TRACKER_OFFSET_MM),
+                (config.TURN_TRACKER_R_PIN, -TURN_TRACKER_OFFSET_MM),
+            ]
         for pin_no, offset in placement:
             sx, sy = self._sensor_xy(offset)
             white = self.arena.is_white(sx, sy)

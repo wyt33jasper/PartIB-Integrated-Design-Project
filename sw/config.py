@@ -32,12 +32,19 @@ LOOP_PERIOD_MS = 5          # target main-loop period; keeps the button poll
                             # rate high and the line follower responsive
 
 # -------------------------------------------------------------- line sensors
-# Four sensors, the maximum allowed. The inner pair straddles the line, the
-# outer pair looks for junction markings.
+# Up to four sensors, the maximum allowed. The inner pair straddles the line
+# and is all that line following needs. The outer pair looks for junction
+# markings and is only used by navigation.
+#
+# Week 1 fits the inner pair only, so TURN_TRACKERS_FITTED is False and the
+# outer pins are never configured. Set it True once the other two sensors are
+# mounted - nothing else changes.
+TURN_TRACKERS_FITTED = False
+
 LINE_TRACKER_L_PIN = 18     # CHECK - inner left
 LINE_TRACKER_R_PIN = 19     # CHECK - inner right
-TURN_TRACKER_L_PIN = 20     # CHECK - outer left
-TURN_TRACKER_R_PIN = 21     # CHECK - outer right
+TURN_TRACKER_L_PIN = 20     # CHECK - outer left,  ignored while unfitted
+TURN_TRACKER_R_PIN = 21     # CHECK - outer right, ignored while unfitted
 
 # The PicoBot guide specifies TTL HIGH over white, LOW over black. Flip this
 # if the bench test reports the opposite - the AGV would otherwise steer away

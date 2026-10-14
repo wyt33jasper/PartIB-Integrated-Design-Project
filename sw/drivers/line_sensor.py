@@ -6,7 +6,11 @@ Some modules are wired the other way round, so the polarity is configurable
 rather than assumed - get it wrong and the AGV steers away from the line
 instead of towards it.
 
-Four sensors, the maximum the team is allowed:
+Up to four sensors, the maximum the team is allowed. The outer pair is
+optional: line following itself only needs the inner pair, so the week 1
+two-sensor robot leaves the outer pair unfitted and the same code runs
+unchanged. With no outer sensors the array reports no junction, ever, and
+the follower falls through to plain line following on every pass.
 
     turn L      line L   line R      turn R
       |           |        |           |
@@ -27,7 +31,11 @@ BLACK = 0
 
 class LineSensor:
     def __init__(self, pin_no, white_is_high=True):
-        self._pin = Pin(pin_no, Pin.IN)
+        # Pull down so a pin whose sensor is unfitted, unplugged or broken
+        # reads black rather than floating. Black is the safe answer for
+        # both pairs: an inner sensor reporting black stops the AGV, an
+        # outer one reporting black means "no junction here".
+        self._pin = Pin(pin_no, Pin.IN, Pin.PULL_DOWN)
         self._white_is_high = white_is_high
 
     def read(self):
@@ -41,22 +49,37 @@ class LineSensor:
 class LineSensorArray:
     """The four sensors, grouped the way the follower thinks about them."""
 
-    def __init__(self, line_l_pin, line_r_pin, turn_l_pin, turn_r_pin,
-                 white_is_high=True):
+    def __init__(self, line_l_pin, line_r_pin,
+                 turn_l_pin=None, turn_r_pin=None, white_is_high=True):
+        """Pass turn_l_pin and turn_r_pin as None when the outer pair is not
+        fitted - the two-sensor line following robot."""
         self._line_l = LineSensor(line_l_pin, white_is_high)
         self._line_r = LineSensor(line_r_pin, white_is_high)
-        self._turn_l = LineSensor(turn_l_pin, white_is_high)
-        self._turn_r = LineSensor(turn_r_pin, white_is_high)
+        self._turn_l = LineSensor(turn_l_pin, white_is_high) if turn_l_pin is not None else None
+        self._turn_r = LineSensor(turn_r_pin, white_is_high) if turn_r_pin is not None else None
 
     def line_trackers(self):
         """(left, right) inner sensors.  (1, 1) means on track."""
         return self._line_l.read(), self._line_r.read()
 
+    @property
+    def has_turn_trackers(self):
+        return self._turn_l is not None and self._turn_r is not None
+
     def turn_trackers(self):
-        """(left, right) outer sensors.  (0, 0) means no junction here."""
+        """(left, right) outer sensors.  (0, 0) means no junction here.
+
+        Returns (0, 0) when the outer pair is not fitted, so callers need no
+        special case: no junction is ever reported.
+        """
+        if not self.has_turn_trackers:
+            return BLACK, BLACK
         return self._turn_l.read(), self._turn_r.read()
 
     def read_all(self):
-        """(turn_l, line_l, line_r, turn_r) - handy for bench testing."""
-        return (self._turn_l.read(), self._line_l.read(),
-                self._line_r.read(), self._turn_r.read())
+        """(turn_l, line_l, line_r, turn_r) - handy for bench testing.
+
+        The outer readings are BLACK when that pair is not fitted.
+        """
+        turn_l, turn_r = self.turn_trackers()
+        return (turn_l, self._line_l.read(), self._line_r.read(), turn_r)
