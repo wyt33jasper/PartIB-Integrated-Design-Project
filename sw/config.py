@@ -56,3 +56,12 @@ FOLLOW_STEER = 20           # differential correction applied when off centre
 RECOVER_SPEED = 35          # reverse speed when the line is lost
 LOST_TIMEOUT_MS = 2000      # stop after this long with no line at all;
                             # set to 0 to reverse indefinitely
+
+# -------------------------------------------------------------- junctions
+# A junction marking has to be visible for CONFIRM_MS before it counts, and
+# the turn trackers have to be clear for CLEAR_MS before the next one can.
+# Together these stop one physical junction being counted many times as it
+# passes under the sensor, which would desynchronise the whole route.
+JUNCTION_CONFIRM_MS = 20    # CHECK on the table - raise if flicker counts
+JUNCTION_CLEAR_MS = 200     # CHECK on the table - must exceed the time the
+                            # marking spends under the sensor at FOLLOW_SPEED
