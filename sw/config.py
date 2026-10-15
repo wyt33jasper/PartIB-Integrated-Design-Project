@@ -24,8 +24,8 @@ AMBER_FLASH_MS = 250        # 250 ms on / 250 ms off = 2 Hz, within the range
 # Motor Driver 2 (12 V rail) carries the two drive motors.
 LEFT_MOTOR_DIR_PIN = 4      # Motor 3 = Motor Driv2 #1, GP4/GP5
 LEFT_MOTOR_PWM_PIN = 5
-RIGHT_MOTOR_DIR_PIN = 6     # Motor 4 = Motor Driv2 #2, GP6/GP7
-RIGHT_MOTOR_PWM_PIN = 7
+RIGHT_MOTOR_DIR_PIN = 7     # Motor 4 = Motor Driv2 #2, GP6/GP7
+RIGHT_MOTOR_PWM_PIN = 6
 
 # ---------------------------------------------------------------- main loop
 LOOP_PERIOD_MS = 5          # target main-loop period; keeps the button poll
