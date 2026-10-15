@@ -78,7 +78,7 @@ class LineSensorArray:
 
     def read_all(self):
         """(turn_l, line_l, line_r, turn_r) - handy for bench testing.
-
+        
         The outer readings are BLACK when that pair is not fitted.
         """
         turn_l, turn_r = self.turn_trackers()
