@@ -25,7 +25,18 @@ once, because the two outer sensors rarely reach a crossroads on the same
 loop pass - one side can lead the other by several milliseconds.
 """
 
-from utime import ticks_ms, ticks_diff
+try:
+    from utime import ticks_ms, ticks_diff
+except ImportError:
+    # CPython has no utime module; monotonic time keeps detector tests
+    # runnable on a desktop without changing MicroPython behavior.
+    from time import monotonic
+
+    def ticks_ms():
+        return int(monotonic() * 1000)
+
+    def ticks_diff(now, before):
+        return now - before
 
 # Public signatures returned by poll(). LEFT and RIGHT are bit flags rather
 # than separate enum values, so OR-ing them together gives BOTH.

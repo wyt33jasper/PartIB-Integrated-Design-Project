@@ -28,6 +28,11 @@ class Drive:
         self._left.drive((-l_or_r+1)/2 * speed)
         self._right.drive((l_or_r+1)/2 * speed)
 
+    def u_turn(self,speed):
+
+        self._left.drive(speed)
+        self._right.drive(-speed)
+
     def stop(self):
         """Cut drive to both motors.  Safe to call at any time, repeatedly."""
         self._left.stop()

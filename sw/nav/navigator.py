@@ -1,4 +1,4 @@
-from map import find_target_direction
+from .map import find_target_direction
 
 
 # Clockwise compass order lets us calculate the relative turn with one
