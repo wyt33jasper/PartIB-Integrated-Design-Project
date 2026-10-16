@@ -39,12 +39,12 @@ LOOP_PERIOD_MS = 5          # target main-loop period; keeps the button poll
 # Week 1 fits the inner pair only, so TURN_TRACKERS_FITTED is False and the
 # outer pins are never configured. Set it True once the other two sensors are
 # mounted - nothing else changes.
-TURN_TRACKERS_FITTED = False
+TURN_TRACKERS_FITTED = True
 
 LINE_TRACKER_L_PIN = 18     # CHECK - inner left
 LINE_TRACKER_R_PIN = 19     # CHECK - inner right
-TURN_TRACKER_L_PIN = 20     # CHECK - outer left,  ignored while unfitted
-TURN_TRACKER_R_PIN = 21     # CHECK - outer right, ignored while unfitted
+TURN_TRACKER_L_PIN = 27     # CHECK - outer left,  ignored while unfitted
+TURN_TRACKER_R_PIN = 28     # CHECK - outer right, ignored while unfitted
 
 # The PicoBot guide specifies TTL HIGH over white, LOW over black. Flip this
 # if the bench test reports the opposite - the AGV would otherwise steer away
@@ -58,9 +58,9 @@ LINE_WHITE_IS_HIGH = True   # CHECK with test_line_sensors.py
 # steer = speed / 3 tracked cleanly across the whole speed range; 80/30 was
 # the fastest pair that still held the line in simulation, worth trying once
 # 60/20 is working on the real table.
-FOLLOW_SPEED = 60           # cruise speed, 0-100
+FOLLOW_SPEED = 80           # cruise speed, 0-100
 FOLLOW_STEER = 20           # differential correction applied when off centre
-RECOVER_SPEED = 35          # reverse speed when the line is lost
+RECOVER_SPEED = 100          # reverse speed when the line is lost
 LOST_TIMEOUT_MS = 2000      # stop after this long with no line at all;
                             # set to 0 to reverse indefinitely
 
@@ -69,6 +69,13 @@ LOST_TIMEOUT_MS = 2000      # stop after this long with no line at all;
 # the turn trackers have to be clear for CLEAR_MS before the next one can.
 # Together these stop one physical junction being counted many times as it
 # passes under the sensor, which would desynchronise the whole route.
-JUNCTION_CONFIRM_MS = 20    # CHECK on the table - raise if flicker counts
-JUNCTION_CLEAR_MS = 200     # CHECK on the table - must exceed the time the
+JUNCTION_CONFIRM_MS = 200     # CHECK on the table - raise if flicker counts
+JUNCTION_CLEAR_MS = 1000     # CHECK on the table - must exceed the time the
                             # marking spends under the sensor at FOLLOW_SPEED
+
+# ------------------------------------------------------------- navigation
+# The initial node and direction are the start point for the route. The
+# sequence is the list of nodes to visit in order
+INITIAL_NODE = "HOME"        # CHECK - the node at the start of the route
+INITIAL_DIRECTION = "N"     # CHECK - the direction the AGV faces at the start
+SEQUENCE = ["HOME", "RH", "RC", "R1", "R2", "RB1", "RB1_BAY", "RB1", "R2", "R1", "RC", "RH", "HOME"]  # CHECK - the route to follow

@@ -23,6 +23,7 @@ main.py runs automatically when the Pico is powered up, so the AGV waits for
 a deliberate start press before it moves.
 """
 
+from nav.navigator import State
 from utime import sleep_ms
 
 import config
@@ -31,9 +32,10 @@ from drivers.drive import Drive
 from drivers.indicators import FlashingLamp
 from drivers.line_sensor import LineSensorArray
 from nav.follower import LineFollower
+from nav.junction import NONE, JunctionDetector, name
 
 
-def run(button, beacon, drive, follower):
+def run(button, beacon, drive, follower, junction_detector, state):
     """The flowchart loop.  Returns when the stop button is pressed."""
     beacon.on()                         # amber beacon on - the AGV is live
 
@@ -44,6 +46,16 @@ def run(button, beacon, drive, follower):
 
         # --- flash LED -------------------------------------------------
         beacon.update()                 # toggles only when 250 ms has passed
+
+        signature = junction_detector.poll()
+        if signature != NONE:
+            turn = state.junction_turn()
+            if turn is not None:
+                print("Junction detected: {} - route instruction: {}".format(
+                    name(signature), turn))
+            else:
+                print("Junction detected: {} - route complete".format(
+                    name(signature)))
 
         # --- line follower ---------------------------------------------
         follower.tick()                 # one control step, then straight back
@@ -69,12 +81,19 @@ def main():
                             steer=config.FOLLOW_STEER,
                             reverse_speed=config.RECOVER_SPEED,
                             lost_timeout_ms=config.LOST_TIMEOUT_MS)
+    junction_detector = JunctionDetector(
+        sensors,
+        confirm_ms=config.JUNCTION_CONFIRM_MS,
+        clear_ms=config.JUNCTION_CLEAR_MS)
+    state = State(initial_node = config.INITIAL_NODE, 
+                  initial_direction = config.INITIAL_DIRECTION, 
+                  sequence = config.SEQUENCE)
 
     print("AGV ready - press the button to start")
     button.wait_for_press()
 
     try:
-        run(button, beacon, drive, follower)
+        run(button, beacon, drive, follower, junction_detector, state)
     finally:
         # Runs on a normal stop, on Ctrl-C from Thonny, and on any unhandled
         # exception raised inside the loop.
