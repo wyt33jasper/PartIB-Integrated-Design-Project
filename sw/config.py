@@ -95,3 +95,22 @@ QR_POLL_MS = 50             # the reader wants ~50 ms between reads
 QR_CONFIRM_READS = 3        # identical reads needed before a target is acted
                             # on; a misread delivers to the wrong depot, +5
                             # instead of +15
+
+# --------------------------------------------------------------- magnet pole
+# A ratiometric Hall sensor idles near half supply and swings either side
+# depending on which pole faces it, so this needs an ADC pin. GP26 is the
+# only one left - GP27 and GP28 are on the turn trackers.
+MAGNET_ADC_PIN = 26         # CHECK - GP26, the last free ADC pin
+MAGNET_DEADBAND = 2000      # CHECK on the bench with a real magnet; ADC
+                            # counts either side of the idle reading that
+                            # count as a pole rather than noise
+MAGNET_NORTH_IS_HIGH = True # CHECK - which way the sensor faces decides this
+MAGNET_POLL_MS = 20
+MAGNET_CONFIRM_READS = 3    # a wrong pole is +5 instead of +15
+MAGNET_CALIBRATE_SAMPLES = 32
+
+# ----------------------------------------------------------- pole indicator
+# Steady red for a north pole package, steady green for south (M1 spec).
+# Driven through the opto-isolator stage like every other LED.
+RED_LED_PIN = 20            # CHECK - GP20
+GREEN_LED_PIN = 21          # CHECK - GP21
