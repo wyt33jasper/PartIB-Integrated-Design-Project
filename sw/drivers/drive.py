@@ -23,10 +23,20 @@ class Drive:
         self._left.drive(speed + steer)
         self._right.drive(speed - steer)
 
-    def rotate(self, l_or_r, speed): #
-        """Rotate in place.  l_or_r: -1 = left, +1 = right.  speed: 0..100."""
-        self._left.drive((-l_or_r+1)/2 * speed)
-        self._right.drive((l_or_r+1)/2 * speed)
+    # Rotating wheels oppose each other at this fraction of TURN_SPEED. Found
+    # on the table during M1: full speed overshot the line every time.
+    ROTATE_SCALE = 0.8
+
+    def rotate(self, l_or_r, speed):
+        """Rotate in place.  l_or_r: -1 = left, +1 = right.  speed: 0..100.
+
+        The wheels counter-rotate, so the AGV spins about its own centre.
+        The earlier version drove one wheel and stopped the other, which
+        pivoted about that wheel and swung the body through a much wider
+        arc than the table has room for.
+        """
+        self._left.drive(l_or_r * speed * Drive.ROTATE_SCALE)
+        self._right.drive(-l_or_r * speed * Drive.ROTATE_SCALE)
 
     def u_turn(self,speed):
 
