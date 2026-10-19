@@ -13,21 +13,32 @@ delivered correctly, against +5 for the wrong depot. Getting the pole wrong
 costs two thirds of the score for that package, so the reading is confirmed
 rather than trusted on sight.
 
-A ratiometric Hall sensor idles near half supply and swings up for one pole
-and down for the other. Which way round depends on which face of the sensor
-the magnet approaches, so MAGNET_NORTH_IS_HIGH exists rather than an
-assumption.
+There are two ways to read the pole, and which one is available is decided
+by the wiring rather than by preference:
 
-The idle point is measured at startup, not hardcoded. It drifts with
-temperature and with battery voltage over a five minute run, and a fixed
-constant would slowly bias the deadband towards one pole.
+  DigitalHallPair  two unipolar Hall sensors facing opposite ways. One reads
+                   high for a north pole, the other for a south pole, and
+                   neither reads high with no package. Two plain GPIO pins.
 
-Reading absence is deliberately not an event. poll() reports a pole once,
-when it is newly confirmed; an empty gripper just clears the state so the
-next package starts fresh.
+  AnalogueHall     one ratiometric Hall sensor on an ADC pin, idling near
+                   half supply and swinging either side. Better, because it
+                   gives field strength rather than presence, so a weak or
+                   distant magnet is distinguishable from a strong one. It
+                   needs one of the Pico's three ADC pins.
+
+The M1 wiring leaves no ADC pin free - the beacon is on GP26 and the turn
+trackers on GP27 and GP28 - so the digital pair is what the robot can
+actually use today. Freeing an ADC is a matter of moving one turn tracker to
+a plain GPIO; AnalogueHall is kept ready for that.
+
+MagnetSensor wraps either one with the part that matters: a pole must read
+the same several times running before it is believed. Reading absence is
+deliberately not an event. poll() reports a pole once, when it is newly
+confirmed; an empty gripper just clears the state so the next package starts
+fresh.
 """
 
-from machine import ADC, Pin
+from machine import Pin
 from utime import ticks_ms, ticks_diff
 
 NORTH = "north"
@@ -36,57 +47,84 @@ SOUTH = "south"
 _ADC_MAX = 65535
 
 
-class MagnetSensor:
-    def __init__(self, adc_pin, deadband, north_is_high=True,
-                 poll_ms=20, confirm_reads=3, centre=None):
+class DigitalHallPair:
+    """Two unipolar Hall sensors, one per pole.
+
+    Unambiguous by construction: each sensor only responds to the pole it
+    faces, so there is no threshold to tune and nothing to calibrate.
+
+    Both reading high at once is not a real package - it means the sensors
+    are mis-wired or something else is in the field - so it is reported as
+    no reading rather than guessed at.
+    """
+
+    def __init__(self, north_pin, south_pin, active_high=True):
+        # Pull to the inactive level so an unplugged sensor reads "no
+        # magnet" rather than floating.
+        pull = Pin.PULL_DOWN if active_high else Pin.PULL_UP
+        self._north = Pin(north_pin, Pin.IN, pull)
+        self._south = Pin(south_pin, Pin.IN, pull)
+        self._active = 1 if active_high else 0
+        self.raw = (0, 0)
+
+    def calibrate(self, samples=0):
+        """Nothing to calibrate on a digital sensor."""
+        return None
+
+    def read(self):
+        n = self._north.value() == self._active
+        s = self._south.value() == self._active
+        self.raw = (1 if n else 0, 1 if s else 0)
+        if n and not s:
+            return NORTH
+        if s and not n:
+            return SOUTH
+        return None
+
+
+class AnalogueHall:
+    """One ratiometric Hall sensor on an ADC pin.
+
+    The idle point is measured at startup, not hardcoded: the quiescent
+    output drifts with temperature and with battery voltage across a five
+    minute run, and a fixed centre would slowly bias the deadband towards
+    one pole.
+
+    north_is_high exists because which way the sensor faces decides whether
+    north reads above or below idle. That is a mounting detail, not
+    something to assume.
+    """
+
+    def __init__(self, adc_pin, deadband, north_is_high=True, centre=None):
+        if adc_pin is None:
+            raise ValueError(
+                "No ADC pin assigned. Free GP26, GP27 or GP28 first, or use "
+                "DigitalHallPair.")
+        from machine import ADC
         self._adc = ADC(Pin(adc_pin))
         self._deadband = deadband
         self._north_is_high = north_is_high
-        self._poll_ms = poll_ms
-        self._confirm_reads = confirm_reads
-
-        # Half scale is a reasonable starting point for a ratiometric sensor,
-        # but calibrate() should replace it before the run starts.
         self._centre = _ADC_MAX // 2 if centre is None else centre
+        self.raw = self._centre
 
-        self._last_due_ms = ticks_ms()
-        self._candidate = None
-        self._count = 0
-        self.pole = None            # the confirmed pole, or None
-        self.raw = self._centre     # last filtered reading, for bench tests
+    @property
+    def centre(self):
+        return self._centre
 
     def calibrate(self, samples=32):
-        """Measure the idle output with no package in the gripper.
-
-        Call once at startup, before the first pickup. Blocking is fine here:
-        the AGV is stationary and waiting for the start button.
-        """
+        """Measure the idle output with no package in the gripper."""
         total = 0
         for _ in range(samples):
             total += self._adc.read_u16()
         self._centre = total // samples
         return self._centre
 
-    @property
-    def centre(self):
-        return self._centre
-
-    @property
-    def confirmations(self):
-        return self._count
-
-    def reset(self):
-        """Forget the current reading, ready for the next package."""
-        self._candidate = None
-        self._count = 0
-        self.pole = None
-        self._last_due_ms = ticks_ms()
-
-    def _read_filtered(self):
+    def _filtered(self):
         """Median of three samples.
 
-        A Hall reading occasionally jumps on a motor switching transient. The
-        mean would carry that spike into the result; the median discards it.
+        A Hall reading occasionally jumps on a motor switching transient.
+        The mean would carry that spike into the result; the median
+        discards it.
         """
         a = self._adc.read_u16()
         b = self._adc.read_u16()
@@ -106,6 +144,56 @@ class MagnetSensor:
             return SOUTH if self._north_is_high else NORTH
         return None
 
+    def read(self):
+        self.raw = self._filtered()
+        return self.classify(self.raw)
+
+
+def probe_from_config(config):
+    """Build whichever probe the wiring supports, as config.py selects."""
+    if config.MAGNET_MODE == "digital":
+        return DigitalHallPair(config.MAGNET_NORTH_PIN,
+                               config.MAGNET_SOUTH_PIN,
+                               active_high=config.MAGNET_ACTIVE_HIGH)
+    if config.MAGNET_MODE == "analogue":
+        return AnalogueHall(config.MAGNET_ADC_PIN,
+                            config.MAGNET_DEADBAND,
+                            north_is_high=config.MAGNET_NORTH_IS_HIGH)
+    raise ValueError("Unknown MAGNET_MODE: {}".format(config.MAGNET_MODE))
+
+
+class MagnetSensor:
+    """Confirm a pole before believing it, whichever probe is fitted."""
+
+    def __init__(self, probe, poll_ms=20, confirm_reads=3):
+        self._probe = probe
+        self._poll_ms = poll_ms
+        self._confirm_reads = confirm_reads
+
+        self._last_due_ms = ticks_ms()
+        self._candidate = None
+        self._count = 0
+        self.pole = None            # the confirmed pole, or None
+
+    @property
+    def raw(self):
+        """The probe's last reading, for bench tests."""
+        return self._probe.raw
+
+    @property
+    def confirmations(self):
+        return self._count
+
+    def calibrate(self, samples=32):
+        return self._probe.calibrate(samples)
+
+    def reset(self):
+        """Forget the current reading, ready for the next package."""
+        self._candidate = None
+        self._count = 0
+        self.pole = None
+        self._last_due_ms = ticks_ms()
+
     def poll(self):
         """Return a pole on the pass that newly confirms it, else None.
 
@@ -116,8 +204,7 @@ class MagnetSensor:
             return None
         self._last_due_ms = now
 
-        self.raw = self._read_filtered()
-        reading = self.classify(self.raw)
+        reading = self._probe.read()
 
         if reading is None:
             # No magnet in range. Drop any partial confirmation so a package

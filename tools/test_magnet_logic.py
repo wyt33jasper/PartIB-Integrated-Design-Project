@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.join(REPO, "sw"))
 import utime                                            # noqa: E402
 from machine import ADC, Pin                            # noqa: E402
 import config                                           # noqa: E402
-from drivers.magnet import NORTH, SOUTH, MagnetSensor   # noqa: E402
+from drivers.magnet import (NORTH, SOUTH, AnalogueHall,  # noqa: E402
+                            DigitalHallPair, MagnetSensor, probe_from_config)
 from drivers.indicators import PoleIndicator            # noqa: E402
 from nav import destination as dest                     # noqa: E402
 from nav.map import JUNCTIONS                           # noqa: E402
@@ -36,47 +37,93 @@ def check(what, got, want):
     print("  {}  {:<48} {!r}".format("ok  " if ok else "FAIL", what, got))
 
 
-def make_sensor(**kw):
-    opts = dict(adc_pin=config.MAGNET_ADC_PIN,
+ADC_PIN = 27            # a pin that would be free if a turn tracker moved
+
+
+def make_analogue(**kw):
+    """An AnalogueHall on a notional free ADC pin, for the analogue tests."""
+    opts = dict(adc_pin=ADC_PIN,
                 deadband=config.MAGNET_DEADBAND,
-                north_is_high=config.MAGNET_NORTH_IS_HIGH,
-                poll_ms=config.MAGNET_POLL_MS,
-                confirm_reads=config.MAGNET_CONFIRM_READS)
+                north_is_high=config.MAGNET_NORTH_IS_HIGH)
     opts.update(kw)
-    sensor = MagnetSensor(**opts)
-    return sensor, ADC.registry[config.MAGNET_ADC_PIN]
+    probe = AnalogueHall(**opts)
+    sensor = MagnetSensor(probe,
+                          poll_ms=config.MAGNET_POLL_MS,
+                          confirm_reads=config.MAGNET_CONFIRM_READS)
+    return sensor, probe, ADC.registry[ADC_PIN]
+
+
+def make_digital():
+    """The probe the M1 wiring actually supports."""
+    probe = DigitalHallPair(config.MAGNET_NORTH_PIN, config.MAGNET_SOUTH_PIN,
+                            active_high=config.MAGNET_ACTIVE_HIGH)
+    sensor = MagnetSensor(probe,
+                          poll_ms=config.MAGNET_POLL_MS,
+                          confirm_reads=config.MAGNET_CONFIRM_READS)
+    active = 1 if config.MAGNET_ACTIVE_HIGH else 0
+
+    def present(pole):
+        Pin.registry[config.MAGNET_NORTH_PIN].value(
+            active if pole == NORTH else 1 - active)
+        Pin.registry[config.MAGNET_SOUTH_PIN].value(
+            active if pole == SOUTH else 1 - active)
+    return sensor, probe, present
 
 
 def main():
-    print("classification against the deadband")
-    sensor, adc = make_sensor()
-    centre = sensor.centre
+    print("digital pair - what the M1 wiring supports")
+    sensor, probe, present = make_digital()
+    present(NORTH)
+    check("north sensor high reads north", probe.read(), NORTH)
+    present(SOUTH)
+    check("south sensor high reads south", probe.read(), SOUTH)
+    present(None)
+    check("neither high is no package", probe.read(), None)
+    active = 1 if config.MAGNET_ACTIVE_HIGH else 0
+    Pin.registry[config.MAGNET_NORTH_PIN].value(active)
+    Pin.registry[config.MAGNET_SOUTH_PIN].value(active)
+    check("both high is rejected, not guessed", probe.read(), None)
+
+    print("\nthe probe chosen by config.py")
+    chosen = probe_from_config(config)
+    check("config selects the digital pair",
+          isinstance(chosen, DigitalHallPair), True)
+    raised = False
+    try:
+        AnalogueHall(None, 2000)
+    except ValueError:
+        raised = True
+    check("analogue refuses to build with no ADC pin assigned", raised, True)
+
+    print("\nanalogue classification against the deadband")
+    sensor, probe, adc = make_analogue()
+    centre = probe.centre
     band = config.MAGNET_DEADBAND
-    check("idle reading is no pole", sensor.classify(centre), None)
+    check("idle reading is no pole", probe.classify(centre), None)
     check("just inside the deadband is no pole",
-          sensor.classify(centre + band - 1), None)
-    check("just outside, high, is north", sensor.classify(centre + band), NORTH)
-    check("just outside, low, is south", sensor.classify(centre - band), SOUTH)
-    check("far high is north", sensor.classify(centre + 20000), NORTH)
-    check("far low is south", sensor.classify(centre - 20000), SOUTH)
+          probe.classify(centre + band - 1), None)
+    check("just outside, high, is north", probe.classify(centre + band), NORTH)
+    check("just outside, low, is south", probe.classify(centre - band), SOUTH)
+    check("far high is north", probe.classify(centre + 20000), NORTH)
+    check("far low is south", probe.classify(centre - 20000), SOUTH)
 
     print("\nsensor mounted the other way round")
-    flipped, _ = make_sensor(north_is_high=False)
+    _, flipped, _ = make_analogue(north_is_high=False)
     check("high now reads south", flipped.classify(flipped.centre + band), SOUTH)
     check("low now reads north", flipped.classify(flipped.centre - band), NORTH)
 
     print("\ncalibration replaces the assumed idle point")
-    sensor, adc = make_sensor()
+    sensor, probe, adc = make_analogue()
     adc.value_u16 = 30000
     check("calibrate measures the real idle", sensor.calibrate(8), 30000)
     check("a reading at the new centre is no pole",
-          sensor.classify(30000), None)
+          probe.classify(30000), None)
     check("the old half-scale point is now off centre",
-          sensor.classify(32768 + band), NORTH)
+          probe.classify(32768 + band), NORTH)
 
     print("\nconfirmation - a pole is reported once, after 3 readings")
-    sensor, adc = make_sensor()
-    adc.value_u16 = sensor.centre + band + 500
+    sensor, probe, adc = make_analogue()
+    adc.value_u16 = probe.centre + band + 500
 
     def poll_once():
         utime.advance(config.MAGNET_POLL_MS)
@@ -95,24 +142,24 @@ def main():
           sensor.confirmations, before)
 
     print("\nremoving the package clears the state")
-    adc.value_u16 = sensor.centre
+    adc.value_u16 = probe.centre
     poll_once()
     check("no pole once the magnet leaves", sensor.pole, None)
     check("count cleared", sensor.confirmations, 0)
 
     print("\na brief spike cannot flip the reported pole")
-    sensor, adc = make_sensor()
-    adc.value_u16 = sensor.centre + band + 500
+    sensor, probe, adc = make_analogue()
+    adc.value_u16 = probe.centre + band + 500
     poll_once(); poll_once(); poll_once()        # north confirmed
-    adc.value_u16 = sensor.centre - band - 500   # one transient the other way
+    adc.value_u16 = probe.centre - band - 500   # one transient the other way
     check("single opposite reading does not report", poll_once(), None)
     check("reported pole is still north", sensor.pole, NORTH)
-    adc.value_u16 = sensor.centre + band + 500
+    adc.value_u16 = probe.centre + band + 500
     poll_once()
     check("north survives the glitch", sensor.pole, NORTH)
 
     print("\na sustained change does flip it")
-    adc.value_u16 = sensor.centre - band - 500
+    adc.value_u16 = probe.centre - band - 500
     poll_once(); poll_once()
     check("two south readings are not enough", sensor.pole, NORTH)
     check("the third reports south", poll_once(), SOUTH)
