@@ -83,3 +83,15 @@ JUNCTION_CLEAR_MS = 1000     # CHECK on the table - must exceed the time the
 INITIAL_NODE = "HOME"        # CHECK - the node at the start of the route
 INITIAL_DIRECTION = "N"     # CHECK - the direction the AGV faces at the start
 SEQUENCE = ["HOME", "RH", "RC", "R1", "R2", "RB1", "RB1_BAY", "RB1", "R2", "R1", "RC", "RH", "HOME"]  # CHECK - the route to follow
+# ------------------------------------------------------------------- QR code
+# The Tiny Code Reader sits on I2C at address 0x0C and decodes the package's
+# QR code itself. The department's example uses I2C0 on GP16/GP17.
+QR_I2C_ID = 0
+QR_SDA_PIN = 16             # CHECK - GP16
+QR_SCL_PIN = 17             # CHECK - GP17
+QR_I2C_FREQ = 400000
+
+QR_POLL_MS = 50             # the reader wants ~50 ms between reads
+QR_CONFIRM_READS = 3        # identical reads needed before a target is acted
+                            # on; a misread delivers to the wrong depot, +5
+                            # instead of +15
