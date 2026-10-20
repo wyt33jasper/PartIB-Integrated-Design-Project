@@ -47,3 +47,20 @@ class PWM:
 
     def duty_u16(self, d):
         self.duty = d
+
+
+class ADC:
+    """Host-side stand-in for machine.ADC.
+
+    Tests set `value_u16` to pretend the Hall sensor is seeing a field.
+    """
+
+    registry = {}
+
+    def __init__(self, pin):
+        self.pin = pin
+        self.value_u16 = 32768          # mid scale, as a ratiometric part idles
+        ADC.registry[getattr(pin, "no", pin)] = self
+
+    def read_u16(self):
+        return self.value_u16

@@ -122,10 +122,11 @@ class JunctionDetector:
         # tracker(s) saw a marking during the confirmation window.
         turn_l, turn_r = self._sensors.turn_trackers()
         seen = (LEFT if turn_l else NONE) | (RIGHT if turn_r else NONE)
+
         now = ticks_ms()
 
         if self._state == _CLEAR:
-            if seen:
+            if seen != 0:
                 # Start a fresh confirmation window at the first observation.
                 # Do not report yet: the reading could be brief sensor noise.
                 self._state = _CONFIRMING
@@ -134,7 +135,7 @@ class JunctionDetector:
             return NONE
 
         if self._state == _CONFIRMING:
-            if not seen:
+            if seen == 0:
                 # Both trackers went clear before confirmation completed.
                 # Treat that as flicker and require a fresh visible interval.
                 self._state = _CLEAR
@@ -157,7 +158,7 @@ class JunctionDetector:
 
         # _COUNTED: suppress further events while either tracker still sees
         # this marking. Each visible reading restarts the clear interval.
-        if seen:
+        if seen != 0:
             self._since_ms = now
         elif self._since_ms is None:
             # pause() was called while polling was suspended; begin timing now.

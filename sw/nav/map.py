@@ -63,6 +63,21 @@ JUNCTIONS = {
 }
 
 
+def exits(junction):
+    """The compass directions that actually lead somewhere from a junction."""
+    return tuple(d for d, target in JUNCTIONS[junction].items()
+                 if target is not None)
+
+
+def is_dead_end(junction):
+    """True for a bay: a spur with nothing beyond it.
+
+    The AGV knows it has arrived at one when the line simply runs out, so
+    this replaces naming particular bay nodes in the route logic.
+    """
+    return len(exits(junction)) <= 1
+
+
 def path_find(start_junction, end_junction):
     """Return shortest route steps as (junction, direction, next_junction).
 
