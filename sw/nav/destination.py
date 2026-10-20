@@ -22,6 +22,7 @@ candidate bays in order and takes the first free one.
 """
 
 from drivers.magnet import NORTH, SOUTH
+from nav.map import corridor_node
 
 RACK_A = "A"
 RACK_B = "B"
@@ -115,3 +116,19 @@ def bay_nodes(rack, level):
         raise ValueError("Unknown destination: {} {}".format(rack, level))
     return tuple("{}{}_BAY".format(prefix, n)
                  for n in range(1, BAYS_PER_RACK + 1))
+
+
+def shelf(rack, level):
+    """((corridor_node, bay_node), ...) for a destination, in driving order.
+
+    This is what the delivery leg drives along: the AGV runs up the corridor
+    and, at each junction in this list, asks the side rangefinder whether the
+    bay beside it is already occupied. The corridor node for each bay comes
+    from the map, so adding or moving a bay needs no change here.
+    """
+    return tuple((corridor_node(bay), bay) for bay in bay_nodes(rack, level))
+
+
+def shelf_for(pole, pickup_side):
+    """The shelf a package collected at `pickup_side` with `pole` belongs on."""
+    return shelf(*destination(pole, pickup_side))

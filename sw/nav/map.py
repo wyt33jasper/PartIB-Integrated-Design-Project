@@ -78,6 +78,66 @@ def is_dead_end(junction):
     return len(exits(junction)) <= 1
 
 
+COMPASS = ("N", "E", "S", "W")
+
+
+def ahead(junction, heading):
+    """The junction directly in front, or None if the line ends there."""
+    return JUNCTIONS[junction][heading]
+
+
+def _sides(heading):
+    """The two compass directions to the left and right of `heading`."""
+    index = COMPASS.index(heading)
+    return COMPASS[(index - 1) % 4], COMPASS[(index + 1) % 4]
+
+
+def has_marking(junction, heading):
+    """True if the turn trackers will see a junction marking here.
+
+    The markings are painted where a branch leaves the line, so a node is
+    only visible to the outer sensors if it has an exit to one side or the
+    other of the direction being travelled. A node whose only exits are
+    straight ahead and straight behind - UU and RH, for instance - is just
+    a piece of line, and the AGV drives over it without an event.
+
+    Navigation counts junction events, so it has to agree with the sensors
+    about which nodes produce one. Getting this from the map means the two
+    cannot drift apart when the map is edited.
+    """
+    left, right = _sides(heading)
+    return (JUNCTIONS[junction][left] is not None or
+            JUNCTIONS[junction][right] is not None)
+
+
+def corridor_node(bay):
+    """The junction a dead-end bay hangs off.
+
+    Worked out from the bay's single exit rather than tabulated, so the bay
+    to corridor relationship can never disagree with the map.
+    """
+    ways = exits(bay)
+    if len(ways) != 1:
+        raise ValueError(
+            "{} is not a bay: it has {} exits".format(bay, len(ways)))
+    return JUNCTIONS[bay][ways[0]]
+
+
+def next_step(start_junction, end_junction):
+    """The first junction on the shortest route, or None if already there.
+
+    Replanning from scratch at every junction costs one breadth-first search
+    over sixty nodes, which is far below a main-loop period, and buys the
+    property that matters on the table: if the AGV ends up somewhere it did
+    not intend to be, the next junction routes it onwards from where it
+    actually is instead of continuing to follow a stale plan.
+    """
+    steps = path_find(start_junction, end_junction)
+    if not steps:
+        return None
+    return steps[0][2]
+
+
 def path_find(start_junction, end_junction):
     """Return shortest route steps as (junction, direction, next_junction).
 

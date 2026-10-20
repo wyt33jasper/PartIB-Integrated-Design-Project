@@ -142,9 +142,18 @@ QR_CONFIRM_READS = 3        # identical reads needed before a target is acted
 # MAGNET_MODE to "analogue". Nothing above the probe changes.
 MAGNET_MODE = "digital"
 
-# digital mode
-MAGNET_NORTH_PIN = 10       # CHECK - GP10, Hall sensor facing north pole
-MAGNET_SOUTH_PIN = 11       # CHECK - GP11, Hall sensor facing south pole
+# digital mode. These moved off GP10 and GP11, which I2C1 now needs for the
+# right-hand bay rangefinder. GP12 and GP14 were the spare plain GPIO.
+#
+# The pair sits at the gripper, not on the sides of the chassis: a unipolar
+# Hall only answers for the pole it faces, so a north-tuned sensor looking
+# sideways would read every south-pole package on the lower racks as an
+# empty bay. Bay occupancy is measured by the rangefinders instead, and
+# these two do what they are good at - telling the poles apart, and saying
+# when a package is close enough to grip, because neither reads high until
+# the magnet is in range.
+MAGNET_NORTH_PIN = 12       # CHECK - GP12, Hall sensor facing north pole
+MAGNET_SOUTH_PIN = 14       # CHECK - GP14, Hall sensor facing south pole
 MAGNET_ACTIVE_HIGH = True   # CHECK - True if the module pulls the line HIGH
 
 # analogue mode - unusable until an ADC pin is freed, hence None
@@ -162,3 +171,103 @@ MAGNET_CONFIRM_READS = 3    # a wrong pole is +5 instead of +15
 # Driven through the opto-isolator stage like every other LED.
 RED_LED_PIN = 21            # CHECK - GP21
 GREEN_LED_PIN = 22          # CHECK - GP22
+
+# ------------------------------------------------------- bay rangefinders
+# One side-facing rangefinder per side, for deciding whether a bay already
+# holds a package before the AGV commits to turning into it. The spec says
+# to "only deliver if the location is not already occupied", and the racks
+# may be loaded before the run begins, so occupancy has to be measured.
+#
+#   "tof"      a VL53L0X on each side, reporting millimetres. The threshold
+#              below is then a number to tune rather than a property of the
+#              part, which is why this is the preferred option.
+#   "digital"  a sensor in IO mode - the STU-22L - whose line goes active
+#              inside its own fixed trip distance. One plain GPIO per side,
+#              nothing on the bus, but no threshold to adjust.
+#   "none"     not fitted. The scan then reports UNKNOWN for every bay, and
+#              BAY_UNKNOWN_IS_OCCUPIED decides what the mission does about
+#              it. main() prints a warning at start-up.
+RANGER_MODE = "none"        # CHECK - set to "tof" once the sensors are on
+
+# Two VL53L0Xs both answer at 0x29, so they cannot share one bus without
+# XSHUT sequencing at boot. They go on separate buses instead: I2C0 on
+# GP16/GP17 alongside the QR reader (0x0C, no clash), I2C1 on GP10/GP11.
+# A VL53L0X and a TMF8x01 (0x41) would share one bus happily, if the team
+# ends up with one of each.
+RANGER_PINS = {
+    "left":  {"i2c_id": 0, "sda": 16, "scl": 17, "address": 0x29, "pin": 8},
+    "right": {"i2c_id": 1, "sda": 10, "scl": 11, "address": 0x29, "pin": 9},
+}
+RANGER_I2C_FREQ = 400000
+RANGER_ACTIVE_HIGH = True   # CHECK - "digital" mode only
+
+RANGER_POLL_MS = 50         # a VL53L0X measurement takes about this long
+RANGER_CONFIRM_READS = 3    # near readings needed before a bay is called
+                            # occupied; one bad answer either stacks a
+                            # package on top of another or skips a free bay
+
+# A bay mouth is level with the junction, so by the time the outer trackers
+# have confirmed the marking the rangefinder is only just reaching it. The
+# AGV creeps forward for this long, sampling, before the scan is read.
+#
+# This must satisfy BAY_SCAN_ADVANCE_MS >= RANGER_POLL_MS *
+# RANGER_CONFIRM_READS, or there is no time to gather the samples and every
+# bay reads unknown. main() checks it at start-up.
+BAY_SCAN_ADVANCE_MS = 400   # CHECK - measure where the sensor sits relative
+                            # to the trackers and how fast the AGV creeps
+
+# MEASURE THESE ON THE TABLE before trusting the scan. Two numbers settle it:
+# what the sensor reads with a package in the bay, and what it reads with the
+# bay empty. The threshold goes between them, and the gap between them is how
+# much margin the scan has.
+BAY_OCCUPIED_MM = 120       # CHECK - at or under this means a package is there
+BAY_MIN_MM = 20             # CHECK - below the sensor's crosstalk floor, so
+                            # the reading is rejected rather than believed
+BAY_MAX_MM = 1200           # beyond this there is nothing in range at all,
+                            # which means an empty bay
+
+# What to do with a bay the sensor could not read. True skips it, which risks
+# passing over a free bay; False tries it, which risks stacking one package
+# on another. Skipping is cheaper: a shelf has six bays and only some are
+# full, so a single bad reading costs nothing.
+BAY_UNKNOWN_IS_OCCUPIED = True
+
+# ----------------------------------------------------------------- gripper
+# The linear actuator has no position feedback, so a movement is a timed run
+# - drive it for a measured duration, then cut it. MEASURE THESE.
+GRIPPER_FITTED = False      # CHECK - set True once the mechanism is on
+GRIPPER_DIR_PIN = 0         # Actuator 1 = Motor Driv1 #1, GP0/GP1
+GRIPPER_PWM_PIN = 1
+GRIPPER_CLOSE_MS = 2500     # CHECK - measured on the bench
+GRIPPER_OPEN_MS = 2500      # CHECK - measured on the bench
+GRIPPER_SPEED = 100
+GRIPPER_CLOSED_IS_EXTENDED = True   # CHECK - which way grips
+
+# How long to keep closing on a package while waiting for the Hall pair to
+# confirm a pole. If it never confirms, the loading bay is empty or the
+# package is out of reach; the AGV releases and moves on rather than
+# stalling there for the rest of the run.
+COLLECT_TIMEOUT_MS = 4000
+
+# ------------------------------------------------------------- the mission
+# Where the AGV starts and finishes. The spec gives ten points for being
+# back inside the start box at the end of the run.
+HOME_NODE = "HOME"
+
+# The loading bays to work, in order. The spec puts packages on four of
+# them; which two are on which side comes from nav/destination.py, not from
+# here, so this list is only about the order they are visited in.
+PICKUP_ORDER = ["R1_BAY", "R2_BAY", "L1_BAY", "L2_BAY"]
+
+# The run is five minutes. CYCLE_RESERVE_MS is what must be left on the
+# clock for the AGV to start another package, so it has to cover the whole
+# of one: drive to the loading bay, collect, drive to the shelf, scan,
+# deliver, and get home afterwards. Reserving only the drive home lets the
+# AGV commit to a round trip it cannot finish.
+#
+# MEASURE THIS. A rough figure from the map: a full four-package run covers
+# about 48 junction-to-junction moves, so one package is around twelve, plus
+# the drive home. Time one complete cycle on the table and use that.
+RUN_LIMIT_MS = 5 * 60 * 1000
+CYCLE_RESERVE_MS = 90 * 1000    # CHECK - one whole collect-and-deliver cycle
+                                # plus the drive home

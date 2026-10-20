@@ -1,21 +1,36 @@
 """AGV main program - IDP M1 2026.
 
-Implements the team flowchart:
+The run, as a loop:
 
     Main --> [stop button pressed?] --yes--> End
                      | no
                      v
               Flash amber LED
                      v
+         [line run out in a bay?] --yes--> grip or release, back out, turn
+                     | no
+                     v
+            [junction detected?] --yes--> ask the mission for the turn
+                     | no
+                     v
                Line follower
                      |
                      +--------> back to the stop check
+
+Where M1 drove a route typed out in config.py, the turns now come from
+nav/mission.py, which plans each leg from a goal. The loop's job is to run
+the hardware and report two events - a junction, and the line running out in
+a bay - and to carry out whatever the mission asks for in reply. It makes no
+route decisions of its own.
 
 Two rules hold the design together:
 
   * Nothing inside the loop blocks.  Each call returns immediately, so the
     stop button is tested every few milliseconds rather than whenever a
-    sleep() happens to finish.
+    sleep() happens to finish.  The gripper movements and the turn phases
+    are deadlines checked inside the loop for exactly this reason: a grip
+    takes a couple of seconds, and sleeping through it would leave the AGV
+    holding a package with its safety control unread.
   * The motors are stopped on every exit path, including an unhandled
     exception, so a software fault cannot leave the AGV driving.
 
@@ -23,20 +38,79 @@ main.py runs automatically when the Pico is powered up, so the AGV waits for
 a deliberate start press before it moves.
 """
 
-from nav.navigator import State
 from utime import sleep_ms, ticks_ms, ticks_diff
 
 import config
 from drivers.button import Button
 from drivers.drive import Drive
-from drivers.indicators import FlashingLamp
+from drivers.gripper import gripper_from_config
+from drivers.indicators import FlashingLamp, PoleIndicator
 from drivers.line_sensor import LineSensorArray
+from drivers.magnet import MagnetSensor, probe_from_config
+from drivers.rangefinder import scanner_from_config
 from nav.follower import LineFollower
 from nav.junction import NONE, JunctionDetector, name
-from nav.map import is_dead_end
+from nav.mission import Mission, PICK_UP, PUT_DOWN
+from nav.navigator import State
 
 
-def _perform_turn(button, beacon, drive, sensors, turn):
+class Robot:
+    """Everything the loop touches, so the helpers take one argument.
+
+    service() is the part that matters: whatever the AGV is doing - turning,
+    gripping, reversing out of a bay - these all have to keep running, so
+    every wait in this file is a loop around service() rather than a sleep.
+    """
+
+    def __init__(self, button, beacon, drive, sensors, follower, junctions,
+                 poles, magnet, scanner, gripper, mission):
+        self.button = button
+        self.beacon = beacon
+        self.drive = drive
+        self.sensors = sensors
+        self.follower = follower
+        self.junctions = junctions
+        self.poles = poles
+        self.magnet = magnet
+        self.scanner = scanner
+        self.gripper = gripper
+        self.mission = mission
+
+    def service(self):
+        """One pass of everything that has to keep running. Never blocks."""
+        self.beacon.update()
+        self.gripper.update()
+        self.scanner.poll()
+        self.magnet.poll()
+        self.mission.tick()
+
+        # The lamps show the package being carried, which stays lit for the
+        # whole delivery, and fall back to the live reading while a package
+        # is being picked up - so the judges see the identification happen.
+        # Both go dark once it is put down, which keeps the display honest.
+        self.poles.show(self.mission.carrying or self.magnet.pole)
+
+
+def _wait(robot, until, timeout_ms=0):
+    """Service the robot until until() is true. False if stopped or timed out.
+
+    Returns True when until() became true, False if the stop button was
+    pressed, and None on a timeout.
+    """
+    started_ms = ticks_ms()
+    while True:
+        if robot.button.was_pressed():
+            robot.drive.stop()
+            return False
+        robot.service()
+        if until():
+            return True
+        if timeout_ms and ticks_diff(ticks_ms(), started_ms) >= timeout_ms:
+            return None
+        sleep_ms(config.LOOP_PERIOD_MS)
+
+
+def _perform_turn(robot, turn):
     """Rotate off the line the AGV is on and onto the next one.
 
     Three phases, with the durations measured on the table during M1:
@@ -75,44 +149,51 @@ def _perform_turn(button, beacon, drive, sensors, turn):
         commit_ms = config.TURN_COMMIT_MS
     seek_from_ms = drive_over_ms + commit_ms
 
+    # The outer trackers sweep across lines throughout a turn. Suspending
+    # detection means none of that is counted as a junction, and requires a
+    # clear window before the next one is, so the junction just turned at
+    # cannot be counted a second time on the way out of it.
+    robot.junctions.pause()
+
     started_ms = ticks_ms()
     has_left_line = False
 
     while True:
-        if button.was_pressed():
-            drive.stop()
+        if robot.button.was_pressed():
+            robot.drive.stop()
             return False
 
-        beacon.update()
+        robot.service()
         elapsed = ticks_diff(ticks_ms(), started_ms)
 
         if elapsed >= config.TURN_TIMEOUT_MS:
-            drive.stop()
+            robot.drive.stop()
             raise RuntimeError(
                 "Timed out waiting for the line after a {} turn".format(turn))
 
-        line_l, line_r = sensors.line_trackers()
+        line_l, line_r = robot.sensors.line_trackers()
         if not line_l or not line_r:
             has_left_line = True
 
         if elapsed < drive_over_ms:
-            drive.move(config.FOLLOW_SPEED)
+            robot.drive.move(config.FOLLOW_SPEED)
         else:
             # Only accept the new line once the commit phase is over, so the
             # line being left cannot be mistaken for the one being sought.
             if elapsed >= seek_from_ms and has_left_line and line_l and line_r:
-                drive.stop()
+                robot.drive.stop()
+                robot.junctions.pause()
                 return True
 
             if turn == "uturn":
-                drive.u_turn(config.FOLLOW_SPEED)
+                robot.drive.u_turn(config.FOLLOW_SPEED)
             else:
-                drive.rotate(direction, config.TURN_SPEED)
+                robot.drive.rotate(direction, config.TURN_SPEED)
 
         sleep_ms(config.LOOP_PERIOD_MS)
 
 
-def _reverse_out_of_bay(button, beacon, drive):
+def _reverse_out_of_bay(robot):
     """Back out of a dead-end bay after the line has run out.
 
     A bay is a spur with nothing past it, so there is no line to follow back
@@ -122,68 +203,179 @@ def _reverse_out_of_bay(button, beacon, drive):
     Returns False if the stop button was pressed.
     """
     started_ms = ticks_ms()
-    while ticks_diff(ticks_ms(), started_ms) < config.BAY_REVERSE_MS:
-        if button.was_pressed():
-            drive.stop()
+
+    def done():
+        robot.drive.move(-config.FOLLOW_SPEED)
+        return ticks_diff(ticks_ms(), started_ms) >= config.BAY_REVERSE_MS
+
+    result = _wait(robot, done)
+    robot.drive.stop()
+    return result is True
+
+
+def _scan_bay_mouth(robot):
+    """Creep forward until the rangefinder is level with the bay mouth.
+
+    The marking is at the junction and the outer trackers are at the front
+    of the chassis, so when a junction is confirmed the side sensor has only
+    just reached the bay beside it. Driving on for a measured moment, with
+    the scanner sampling throughout, is what makes the reading be of the bay
+    rather than of the corridor behind it.
+
+    Returns False if the stop button was pressed.
+    """
+    started_ms = ticks_ms()
+
+    def done():
+        robot.drive.move(config.FOLLOW_SPEED)
+        return ticks_diff(ticks_ms(), started_ms) >= config.BAY_SCAN_ADVANCE_MS
+
+    result = _wait(robot, done)
+    robot.drive.stop()
+    return result is True
+
+
+def _collect(robot):
+    """Close on the package and read its pole.
+
+    Returns (keep_going, pole). A pole of None means there was nothing to
+    pick up: either the loading bay is empty or the magnet never confirmed,
+    and both have the same consequence for the plan.
+
+    The Hall pair does double duty here. Neither sensor reads high until the
+    magnet is in range, so "a pole is readable" and "the package is close
+    enough to grip" are the same signal - which is why nothing else has to
+    measure the approach.
+    """
+    robot.magnet.reset()
+    robot.gripper.close()
+
+    result = _wait(robot,
+                   lambda: robot.magnet.pole is not None
+                   and not robot.gripper.busy,
+                   timeout_ms=config.COLLECT_TIMEOUT_MS)
+    if result is False:
+        return False, None
+    if result is None:
+        print("  no package identified here after {} ms".format(
+            config.COLLECT_TIMEOUT_MS))
+    return True, robot.magnet.pole
+
+
+def _release(robot):
+    """Open the gripper and wait for the movement to finish."""
+    robot.gripper.open()
+    return _wait(robot, lambda: not robot.gripper.busy) is True
+
+
+def _handle_bay(robot):
+    """Do whatever the bay the AGV has driven into is for.
+
+    Returns False if the run should end.
+    """
+    mission = robot.mission
+    job = mission.at_bay()
+
+    if job == PICK_UP:
+        print("  collecting at {}".format(mission.target))
+        keep_going, pole = _collect(robot)
+        if not keep_going:
             return False
-        beacon.update()
-        drive.move(-config.FOLLOW_SPEED)
-        sleep_ms(config.LOOP_PERIOD_MS)
+        if pole is None:
+            # Nothing gripped, so let go rather than carrying the mechanism
+            # around closed on thin air.
+            if not _release(robot):
+                return False
+        else:
+            print("  identified {} pole".format(pole))
+        mission.collected(pole)
+        return True
 
-    drive.stop()
-    return True
+    if job == PUT_DOWN:
+        print("  delivering at {}".format(mission.target))
+        if not _release(robot):
+            return False
+        mission.dropped()
+        return True
+
+    print("  unexpected dead end at {} in phase {}".format(
+        robot.mission.state.current_node, mission.phase))
+    return False
 
 
-def run(button, beacon, drive, sensors, follower, junction_detector, state):
-    """The flowchart loop.  Returns when the stop button is pressed."""
-    beacon.on()                         # amber beacon on - the AGV is live
+def run(robot):
+    """The flowchart loop.  Returns when the run ends."""
+    robot.beacon.on()                   # amber beacon on - the AGV is live
+
+    # The first instruction is a turn where the AGV stands: it may be parked
+    # facing away from its first destination, and there is no junction to
+    # wait for before setting off.
+    turn = robot.mission.start()
+    print(robot.mission.report())
+    if turn is not None and not _perform_turn(robot, turn):
+        return
+
+    # Leaving the start box drags the trackers over whatever marking the
+    # start node has. Requiring a clear window first means that is not
+    # counted as the first junction.
+    robot.junctions.pause()
 
     while True:
         # --- stop button pressed? --------------------------------------
-        if button.was_pressed():
+        if robot.button.was_pressed():
             return                      # --> End
 
-        # --- flash LED -------------------------------------------------
-        beacon.update()                 # toggles only when 250 ms has passed
+        # --- beacon, gripper, sensors, lamps, clock --------------------
+        robot.service()
 
-        # --- end of a bay? ---------------------------------------------
+        # --- line run out in a bay? ------------------------------------
         # The line simply stops at a bay, so losing it there is arrival
-        # rather than a fault. M1 recognised this by naming one bay node;
-        # every bay is a dead end on the map, so the rule needs no names.
-        line_l, line_r = sensors.line_trackers()
-        if not line_l and not line_r and is_dead_end(state.current_node):
-            print("Bay reached at {} - backing out".format(state.current_node))
-            if not _reverse_out_of_bay(button, beacon, drive):
+        # rather than a fault - but only once the AGV has turned into the
+        # spur, which is what expecting_bay checks.
+        line_l, line_r = robot.sensors.line_trackers()
+        if not line_l and not line_r and robot.mission.expecting_bay:
+            robot.drive.stop()
+            if not _handle_bay(robot):
                 return
-            turn = state.junction_turn()
+            if not _reverse_out_of_bay(robot):
+                return
+            turn = robot.mission.leaving_bay()
+            print(robot.mission.report())
             if turn is None:
-                print("Route complete at {}".format(state.current_node))
                 return
-            print("Leaving the bay: {}".format(turn))
-            if not _perform_turn(button, beacon, drive, sensors, turn):
+            if not _perform_turn(robot, turn):
                 return
+            continue
 
-        # --- turn? -----------------------------------------------------
-        signature = junction_detector.poll()
+        # --- junction? -------------------------------------------------
+        signature = robot.junctions.poll()
         if signature != NONE:
-            turn = state.junction_turn()
-            if turn is not None:
-                print("Junction detected: {} - route instruction: {}".format(
-                    name(signature), turn))
-                if not _perform_turn(button, beacon, drive, sensors, turn):
+            if robot.mission.reached_junction():
+                # A bay sits beside the AGV here and the scan is about to
+                # decide whether to turn into it.
+                robot.drive.stop()
+                if not _scan_bay_mouth(robot):
                     return
-            else:
-                print("Junction detected: {} - route complete".format(
-                    name(signature)))
+            turn = robot.mission.decide()
+            if turn is None:
+                robot.drive.stop()
+                print("Run complete: {}".format(robot.mission.report()))
                 return
+            print("{} at {} -> {}".format(name(signature),
+                                          robot.mission.state.current_node,
+                                          turn))
+            if not _perform_turn(robot, turn):
+                return
+            continue
 
         # --- follow line -----------------------------------------------
-        follower.tick()                 # one control step, then straight back
+        robot.follower.tick()           # one control step, then straight back
 
         sleep_ms(config.LOOP_PERIOD_MS)
 
 
-def main():
+def build():
+    """Construct the whole robot from config.py."""
     button = Button(config.BUTTON_PIN,
                     active_high=config.BUTTON_ACTIVE_HIGH,
                     debounce_ms=config.BUTTON_DEBOUNCE_MS)
@@ -201,24 +393,62 @@ def main():
                             steer=config.FOLLOW_STEER,
                             reverse_speed=config.RECOVER_SPEED,
                             lost_timeout_ms=config.LOST_TIMEOUT_MS)
-    junction_detector = JunctionDetector(
+    junctions = JunctionDetector(
         sensors,
         confirm_ms=config.JUNCTION_CONFIRM_MS,
         clear_ms=config.JUNCTION_CLEAR_MS)
+    poles = PoleIndicator(config.RED_LED_PIN, config.GREEN_LED_PIN)
+    magnet = MagnetSensor(probe_from_config(config),
+                          poll_ms=config.MAGNET_POLL_MS,
+                          confirm_reads=config.MAGNET_CONFIRM_READS)
+    scanner = scanner_from_config(config)
+    gripper = gripper_from_config(config)
+
     state = State(initial_node=config.INITIAL_NODE,
-                  initial_direction=config.INITIAL_DIRECTION,
-                  sequence=config.SEQUENCE)
+                  initial_direction=config.INITIAL_DIRECTION)
+    mission = Mission(state, scanner,
+                      pickups=config.PICKUP_ORDER,
+                      home=config.HOME_NODE,
+                      run_limit_ms=config.RUN_LIMIT_MS,
+                      cycle_reserve_ms=config.CYCLE_RESERVE_MS,
+                      unknown_is_occupied=config.BAY_UNKNOWN_IS_OCCUPIED)
+
+    needed_ms = scanner.poll_ms * scanner.confirm_reads
+    if scanner.fitted and config.BAY_SCAN_ADVANCE_MS < needed_ms:
+        print("WARNING: BAY_SCAN_ADVANCE_MS is {} ms but {} samples at {} ms "
+              "each need {} ms. Every bay will read unknown.".format(
+                  config.BAY_SCAN_ADVANCE_MS, scanner.confirm_reads,
+                  scanner.poll_ms, needed_ms))
+    if not scanner.fitted:
+        print("WARNING: no bay rangefinders (RANGER_MODE = {!r}). Every bay "
+              "reads as unknown, so the scan will {}.".format(
+                  config.RANGER_MODE,
+                  "skip them all and carry every package home"
+                  if config.BAY_UNKNOWN_IS_OCCUPIED
+                  else "deliver to the first bay on each shelf"))
+    if not getattr(gripper, "fitted", True):
+        print("WARNING: no gripper fitted. Movements complete instantly, so "
+              "the navigation runs but nothing is actually carried.")
+
+    return Robot(button, beacon, drive, sensors, follower, junctions,
+                 poles, magnet, scanner, gripper, mission)
+
+
+def main():
+    robot = build()
 
     print("AGV ready - press the button to start")
-    button.wait_for_press()
+    robot.button.wait_for_press()
 
     try:
-        run(button, beacon, drive, sensors, follower, junction_detector, state)
+        run(robot)
     finally:
         # Runs on a normal stop, on Ctrl-C from Thonny, and on any unhandled
         # exception raised inside the loop.
-        drive.stop()
-        beacon.off()
+        robot.drive.stop()
+        robot.gripper.stop()
+        robot.beacon.off()
+        robot.poles.off()
         print("AGV stopped")
 
 
