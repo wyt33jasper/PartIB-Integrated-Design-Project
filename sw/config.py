@@ -250,8 +250,10 @@ GRIPPER_CLOSED_IS_EXTENDED = True   # CHECK - which way grips
 COLLECT_TIMEOUT_MS = 4000
 
 # ------------------------------------------------------------- the mission
-# Where the AGV starts and finishes. The spec gives ten points for being
-# back inside the start box at the end of the run.
+# Where the AGV starts and finishes. The scoring gives +15 for being back
+# inside the start box at the end of the run, provided at least two packages
+# were delivered - the same as one more correct delivery, so it is worth
+# giving up a marginal fourth package for.
 HOME_NODE = "HOME"
 
 # The loading bays to work, in order. The spec puts packages on four of

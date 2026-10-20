@@ -130,7 +130,8 @@ is*, instead of following a plan that no longer describes reality.
 
 ## The clock
 
-The run is five minutes, and +10 goes to being back in the start box. The
+The run is five minutes, and +15 goes to being back in the start box once at
+least two packages are delivered — the same as one more correct delivery. The
 decision *"should I start another package?"* is only made at one moment — a
 bay has been dealt with — so the reserve has to cover the whole of what it is
 deciding to start: collect, deliver, and get home afterwards.
