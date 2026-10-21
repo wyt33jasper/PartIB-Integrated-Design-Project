@@ -90,7 +90,8 @@ def main():
           isinstance(chosen, DigitalHallPair), True)
     raised = False
     try:
-        AnalogueHall(None, 2000)
+        AnalogueHall(None, config.MAGNET_DEADBAND,
+                     config.MAGNET_NORTH_IS_HIGH)
     except ValueError:
         raised = True
     check("analogue refuses to build with no ADC pin assigned", raised, True)

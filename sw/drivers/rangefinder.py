@@ -16,21 +16,28 @@ rack, much further, or nothing at all.
              occupied        empty        occupied
              short range    long range    short range
 
+The robot carries a VL53L0X on each side, one per I2C bus - both parts
+answer at 0x29, so they cannot share one without XSHUT sequencing at boot.
+A 25 degree field of view is narrow enough to look into a bay rather than
+at the rack frame around it, which is why these and not the ultrasonic
+URM09: a sideways sonar cone sees the furniture, and 1 cm resolution is
+marginal over the distances involved here.
+
 Two sensor types are supported because the choice is a wiring question:
 
   ToFRanger       a VL53L0X or TMF8x01 style device on I2C, returning a
                   distance in millimetres. Reports how far away the target
                   is, so the threshold is a tunable number rather than a
-                  property of the part.
+                  property of the part. This is what the robot uses.
 
   DigitalRanger   a sensor in IO mode - the STU-22L, for instance - whose
                   single line goes active when a target is closer than its
                   own fixed trip point. One plain GPIO, nothing on the bus,
                   but the trip distance is set in hardware.
 
-Both are read through the same confirm ladder as the magnet sensor: a bay is
-not called empty on the strength of one reading. A wrong answer either stacks
-a package on top of another or skips a free bay, and both cost marks.
+Both are read over a rolling window rather than on the strength of one
+reading. A wrong answer either stacks a package on top of another or skips a
+free bay, and both cost marks.
 
 Two identical I2C parts share one address, so a pair of VL53L0Xs cannot sit
 on the same bus without XSHUT sequencing. Config puts them on separate buses
@@ -60,7 +67,7 @@ class ToFRanger:
     front of it at all, and treating that as a box would skip every bay.
     """
 
-    def __init__(self, device, occupied_mm, min_mm=20, max_mm=1200):
+    def __init__(self, device, occupied_mm, min_mm, max_mm):
         self._device = device
         self._occupied_mm = occupied_mm
         self._min_mm = min_mm
@@ -87,6 +94,56 @@ class ToFRanger:
         return mm <= self._occupied_mm
 
 
+class VL53L0XDevice:
+    """A VL53L0X in continuous ranging mode, read without ever blocking.
+
+    The library in libs/ cannot be called from the main loop as it stands.
+    Its read() spins up to _IO_TIMEOUT = 1000 times waiting for a
+    measurement, sleeping a millisecond between tries:
+
+        for timeout in range(_IO_TIMEOUT):
+            if self._register(_RESULT_INTERRUPT_STATUS) & 0x07:
+                break
+            utime.sleep_ms(1)
+
+    So a single read can hold the loop for a second with the stop button
+    unpolled - the same fault that the turn phases were rewritten to
+    remove. It is also unnecessary: the sensor is left ranging back to back
+    by start(), so the only question each pass is whether a new measurement
+    has landed yet.
+
+    This asks exactly that, in one register read, and reports "no sample
+    this time" rather than waiting for one. BayScanner already treats that
+    as not a sample either way, so a poll that arrives between
+    measurements costs nothing but itself.
+
+    The registers are the library's own public constants; _register is
+    borrowed because duplicating its packing here would be a second place
+    for the register map to live.
+    """
+
+    _INTERRUPT_STATUS = 0x13        # RESULT_INTERRUPT_STATUS
+    _RANGE_STATUS = 0x14            # RESULT_RANGE_STATUS
+    _INTERRUPT_CLEAR = 0x0B         # SYSTEM_INTERRUPT_CLEAR
+    _MEASUREMENT_READY = 0x07
+
+    def __init__(self, sensor):
+        self._sensor = sensor
+        sensor.start()              # continuous, back-to-back ranging
+
+    def read(self):
+        """The newest measurement in mm, or None if none is ready yet."""
+        status = self._sensor._register(self._INTERRUPT_STATUS)
+        if not status & self._MEASUREMENT_READY:
+            return None
+        mm = self._sensor._register(self._RANGE_STATUS + 10, struct=">H")
+        self._sensor._register(self._INTERRUPT_CLEAR, 0x01)
+        return mm
+
+    def stop(self):
+        self._sensor.stop()
+
+
 class TMF8x01Device:
     """read() wrapper so a TMF8x01 looks like the VL53L0X class."""
 
@@ -104,7 +161,7 @@ class DigitalRanger:
     here - but equally nothing to adjust if it trips at the wrong range.
     """
 
-    def __init__(self, pin_no, active_high=True):
+    def __init__(self, pin_no, active_high):
         from machine import Pin
         # Pull to the inactive level, so an unplugged sensor reads "nothing
         # there" rather than floating. For a bay scan that means the AGV
@@ -136,48 +193,53 @@ class NullRanger:
 
 
 class BayScanner:
-    """The two side rangers, sampled across a measured look at one bay.
+    """The two side rangers, sampled continuously over a rolling window.
 
-    The hard part is not the measurement but when to take it. The sensor is
-    level with a bay mouth only briefly - the mouth is at the junction, and
-    the AGV is past it a moment later - and for the whole of the drive up
-    the corridor it is looking at the rack frame instead. A reading that
-    simply tracks the latest confirmed value therefore answers with
-    whatever the corridor looked like, which is "empty", whether the bay is
-    full or not.
+    The sensors look sideways out of the chassis the whole time the AGV is
+    moving, so the question they answer is simply "is the bay beside me
+    free?" - asked on every pass, not at a particular moment. The delivery
+    leg turns in as soon as the answer is yes.
 
-    So a scan is a bounded look rather than a running average. arm() starts
-    one, poll() gathers samples for as long as the main loop keeps the AGV
-    beside the mouth, and occupied() reports what that look found:
+    What matters is that the answer is about where the AGV is *now*. A
+    verdict that accumulated from the moment the corridor was entered would
+    be mostly readings of the rack frame between the bays, and the frame
+    reads as empty space, so a running tally answers for the corridor
+    rather than the bay. The window fixes that: only the last
+    window_samples readable samples count, and everything older is
+    forgotten automatically.
 
-        armed    at the junction, before the AGV creeps forward
-        polled   while it brings the sensor level with the bay mouth
-        read     once, to decide whether to turn in
+        window_samples * RANGER_POLL_MS
+
+    is therefore how far back the verdict can see, and it has to be shorter
+    than the time the AGV spends passing one bay. Too long and the reading
+    blends the bay with whatever is beside it; too short and one stray
+    sample swings it.
 
     Counting near readings rather than averaging distances is deliberate.
-    An occupied bay returns the box face from part of the look and the rack
-    frame from the rest, so the mean sits between the two and means
-    nothing; what matters is whether anything close was seen at all.
-
-    confirm_reads of them are needed, so one glitch cannot condemn a free
-    bay. That sets a floor on how long the look has to last:
-
-        BAY_SCAN_ADVANCE_MS >= RANGER_POLL_MS * RANGER_CONFIRM_READS
-
-    Below that there is no time to gather the samples and every bay reads
-    UNKNOWN. main() checks this at start-up rather than leaving it to be
-    discovered on the table.
+    An occupied bay returns the box face from part of the window and the
+    rack frame from the rest, so the mean sits between the two and means
+    nothing; what matters is whether anything close was seen at all, and
+    confirm_reads of them are needed so one glitch cannot condemn a bay.
     """
 
-    def __init__(self, left, right, poll_ms=50, confirm_reads=3):
+    def __init__(self, left, right, poll_ms, confirm_reads, window_samples):
+        if window_samples < confirm_reads:
+            raise ValueError(
+                "window_samples ({}) must be at least confirm_reads "
+                "({}), or no verdict is ever reachable".format(
+                    window_samples, confirm_reads))
+
         self._rangers = {LEFT: left, RIGHT: right}
         self._poll_ms = poll_ms
         self._confirm_reads = confirm_reads
+        self._window = window_samples
 
-        self._samples = {LEFT: 0, RIGHT: 0}
-        self._near = {LEFT: 0, RIGHT: 0}
+        # A ring per side holding the last window_samples readable results.
+        # None means that slot has not been filled yet.
+        self._ring = {LEFT: [None] * window_samples,
+                      RIGHT: [None] * window_samples}
+        self._at = {LEFT: 0, RIGHT: 0}
         self._last_due_ms = ticks_ms()
-        self.arm()
 
     @property
     def fitted(self):
@@ -193,41 +255,55 @@ class BayScanner:
     def poll_ms(self):
         return self._poll_ms
 
-    def arm(self):
-        """Begin a fresh look. Discards everything the last one gathered."""
+    @property
+    def window_ms(self):
+        """How far back a verdict can see."""
+        return self._window * self._poll_ms
+
+    def reset(self):
+        """Forget the window, so nothing from before this moment counts.
+
+        Called when the AGV turns into a corridor: readings taken on the
+        way there were of something else entirely.
+        """
         for side in SIDES:
-            self._samples[side] = 0
-            self._near[side] = 0
+            self._ring[side] = [None] * self._window
+            self._at[side] = 0
         self._last_due_ms = ticks_ms()
 
-    # Kept so callers that only want to forget the state can say so.
-    reset = arm
+    # The delivery leg speaks of arming a look at a shelf; it is the same
+    # thing as forgetting what came before.
+    arm = reset
 
     def distance(self, side):
         """The last raw reading on that side, for bench tests."""
         return self._rangers[side].raw
 
     def samples(self, side):
-        """Readable samples gathered in this look."""
-        return self._samples[side]
+        """How many of the window's slots are filled."""
+        return sum(1 for r in self._ring[side] if r is not None)
 
     def near_count(self, side):
         """How many of them found something close."""
-        return self._near[side]
+        return sum(1 for r in self._ring[side] if r is True)
 
     def occupied(self, side):
-        """OCCUPIED, EMPTY or UNKNOWN for the bay looked at on that side.
+        """OCCUPIED, EMPTY or UNKNOWN for the bay beside that side.
 
-        UNKNOWN means the look gathered too few readable samples to say -
-        the sensor is not fitted, or it failed, or it was not given long
-        enough. It does not mean the bay is empty, and the mission decides
-        separately what to do about it.
+        UNKNOWN means the window does not hold enough readable samples to
+        say - the sensor is not fitted, or it has failed, or the AGV has
+        only just started looking. It does not mean the bay is empty, and
+        the delivery leg decides separately what to do about it.
         """
-        if self._samples[side] < self._confirm_reads:
+        readings = [r for r in self._ring[side] if r is not None]
+        if len(readings) < self._confirm_reads:
             return UNKNOWN
-        if self._near[side] >= self._confirm_reads:
+        near = sum(1 for r in readings if r)
+        if near >= self._confirm_reads:
             return OCCUPIED
-        return EMPTY
+        if len(readings) - near >= self._confirm_reads:
+            return EMPTY
+        return UNKNOWN
 
     def poll(self):
         """Take a sample on each side if poll_ms has elapsed. Never blocks."""
@@ -240,9 +316,8 @@ class BayScanner:
             reading = self._rangers[side].near()
             if reading is UNKNOWN:
                 continue            # not a sample either way
-            self._samples[side] += 1
-            if reading:
-                self._near[side] += 1
+            self._ring[side][self._at[side]] = reading
+            self._at[side] = (self._at[side] + 1) % self._window
 
 
 def _i2c(bus_id, sda, scl, freq):
@@ -263,11 +338,28 @@ def ranger_from_config(config, side):
                              active_high=config.RANGER_ACTIVE_HIGH)
 
     if mode == "tof":
-        from libs.VL53L0X.VL53L0X import VL53L0X
-        device = VL53L0X(_i2c(pins["i2c_id"], pins["sda"], pins["scl"],
-                              config.RANGER_I2C_FREQ),
-                         address=pins.get("address", 0x29))
-        device.start()
+        # A sensor that is unplugged or mis-wired raises here, during its
+        # own register setup. Letting that propagate would stop main()
+        # before the AGV could be started at all, so the side falls back to
+        # NullRanger: the scan reports that bay as unknown and the mission
+        # policy decides, which is a robot that still runs a route rather
+        # than one that will not boot.
+        try:
+            from libs.VL53L0X.VL53L0X import VL53L0X
+            sensor = VL53L0X(_i2c(pins["i2c_id"], pins["sda"], pins["scl"],
+                                  config.RANGER_I2C_FREQ),
+                             address=pins.get("address", 0x29))
+            sensor.set_Vcsel_pulse_period(sensor.vcsel_period_type[0],
+                                          config.RANGER_VCSEL_PRE_RANGE)
+            sensor.set_Vcsel_pulse_period(sensor.vcsel_period_type[1],
+                                          config.RANGER_VCSEL_FINAL_RANGE)
+            device = VL53L0XDevice(sensor)
+        except (OSError, RuntimeError) as exc:
+            print("WARNING: no {} rangefinder on I2C{} (GP{}/GP{}): "
+                  "{}".format(side, pins["i2c_id"], pins["sda"],
+                              pins["scl"], exc))
+            return NullRanger()
+
         return ToFRanger(device,
                          occupied_mm=config.BAY_OCCUPIED_MM,
                          min_mm=config.BAY_MIN_MM,
@@ -281,4 +373,5 @@ def scanner_from_config(config):
     return BayScanner(ranger_from_config(config, LEFT),
                       ranger_from_config(config, RIGHT),
                       poll_ms=config.RANGER_POLL_MS,
-                      confirm_reads=config.RANGER_CONFIRM_READS)
+                      confirm_reads=config.RANGER_CONFIRM_READS,
+                      window_samples=config.RANGER_WINDOW_SAMPLES)

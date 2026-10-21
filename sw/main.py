@@ -213,28 +213,6 @@ def _reverse_out_of_bay(robot):
     return result is True
 
 
-def _scan_bay_mouth(robot):
-    """Creep forward until the rangefinder is level with the bay mouth.
-
-    The marking is at the junction and the outer trackers are at the front
-    of the chassis, so when a junction is confirmed the side sensor has only
-    just reached the bay beside it. Driving on for a measured moment, with
-    the scanner sampling throughout, is what makes the reading be of the bay
-    rather than of the corridor behind it.
-
-    Returns False if the stop button was pressed.
-    """
-    started_ms = ticks_ms()
-
-    def done():
-        robot.drive.move(config.FOLLOW_SPEED)
-        return ticks_diff(ticks_ms(), started_ms) >= config.BAY_SCAN_ADVANCE_MS
-
-    result = _wait(robot, done)
-    robot.drive.stop()
-    return result is True
-
-
 def _collect(robot):
     """Close on the package and read its pole.
 
@@ -347,16 +325,23 @@ def run(robot):
                 return
             continue
 
+        # --- an empty bay beside us? -----------------------------------
+        # The side rangefinders look out of the chassis the whole time, so
+        # this is asked every pass rather than at any particular place. The
+        # AGV drives past the full bays without stopping and turns into the
+        # first free one the moment the sensor reports it.
+        turn = robot.mission.bay_beside()
+        if turn is not None:
+            print("free bay beside us at {} -> {}".format(
+                robot.mission.state.current_node, turn))
+            if not _perform_turn(robot, turn):
+                return
+            continue
+
         # --- junction? -------------------------------------------------
         signature = robot.junctions.poll()
         if signature != NONE:
-            if robot.mission.reached_junction():
-                # A bay sits beside the AGV here and the scan is about to
-                # decide whether to turn into it.
-                robot.drive.stop()
-                if not _scan_bay_mouth(robot):
-                    return
-            turn = robot.mission.decide()
+            turn = robot.mission.at_junction()
             if turn is None:
                 robot.drive.stop()
                 print("Run complete: {}".format(robot.mission.report()))
@@ -381,7 +366,9 @@ def build():
                     debounce_ms=config.BUTTON_DEBOUNCE_MS)
     beacon = FlashingLamp(config.AMBER_LED_PIN, config.AMBER_FLASH_MS)
     drive = Drive(config.LEFT_MOTOR_DIR_PIN, config.LEFT_MOTOR_PWM_PIN,
-                  config.RIGHT_MOTOR_DIR_PIN, config.RIGHT_MOTOR_PWM_PIN)
+                  config.RIGHT_MOTOR_DIR_PIN, config.RIGHT_MOTOR_PWM_PIN,
+                  pwm_freq_hz=config.MOTOR_PWM_FREQ_HZ,
+                  rotate_scale=config.TURN_ROTATE_SCALE)
     sensors = LineSensorArray(
         config.LINE_TRACKER_L_PIN,
         config.LINE_TRACKER_R_PIN,
@@ -413,12 +400,9 @@ def build():
                       cycle_reserve_ms=config.CYCLE_RESERVE_MS,
                       unknown_is_occupied=config.BAY_UNKNOWN_IS_OCCUPIED)
 
-    needed_ms = scanner.poll_ms * scanner.confirm_reads
-    if scanner.fitted and config.BAY_SCAN_ADVANCE_MS < needed_ms:
-        print("WARNING: BAY_SCAN_ADVANCE_MS is {} ms but {} samples at {} ms "
-              "each need {} ms. Every bay will read unknown.".format(
-                  config.BAY_SCAN_ADVANCE_MS, scanner.confirm_reads,
-                  scanner.poll_ms, needed_ms))
+    print("bay scan: {} samples every {} ms, so a verdict looks back {} ms"
+          .format(config.RANGER_WINDOW_SAMPLES, scanner.poll_ms,
+                  scanner.window_ms))
     if not scanner.fitted:
         print("WARNING: no bay rangefinders (RANGER_MODE = {!r}). Every bay "
               "reads as unknown, so the scan will {}.".format(

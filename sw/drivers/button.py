@@ -20,7 +20,7 @@ from utime import ticks_ms, ticks_diff, sleep_ms
 
 
 class Button:
-    def __init__(self, pin_no, active_high=True, debounce_ms=30):
+    def __init__(self, pin_no, active_high, debounce_ms):
         self._active_high = active_high
         self._debounce_ms = debounce_ms
 

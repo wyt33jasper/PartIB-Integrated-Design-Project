@@ -10,7 +10,8 @@ import ctypes
 import sys
 from time import sleep
 
-from config import INITIAL_DIRECTION, INITIAL_NODE, SEQUENCE
+from config import (INITIAL_DIRECTION, INITIAL_NODE, JUNCTION_CLEAR_MS,
+                    JUNCTION_CONFIRM_MS, SEQUENCE)
 from nav.junction import NONE, JunctionDetector, name
 from nav.navigator import State
 
@@ -38,7 +39,9 @@ class FakeSensors:
 
 def main():
     sensors = FakeSensors(FakeSensors.spacebar_is_pressed)
-    detector = JunctionDetector(sensors)
+    detector = JunctionDetector(sensors,
+                                confirm_ms=JUNCTION_CONFIRM_MS,
+                                clear_ms=JUNCTION_CLEAR_MS)
     state = State(INITIAL_NODE, INITIAL_DIRECTION, SEQUENCE)
 
     print("Hold Space to simulate a crossroad; Ctrl+C to stop.")

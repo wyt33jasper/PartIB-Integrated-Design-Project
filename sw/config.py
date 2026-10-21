@@ -29,6 +29,12 @@ LEFT_MOTOR_PWM_PIN = 5
 RIGHT_MOTOR_DIR_PIN = 7     # Motor 4 = Motor Driv2 #2, GP6/GP7
 RIGHT_MOTOR_PWM_PIN = 6
 
+# Drive PWM frequency. 1 kHz is the department's figure and a safe default
+# for the TB6612FNG, but it is worth tuning: too low and the motors whine
+# audibly at walking pace, too high and they lose torque at low duty, which
+# shows up as the AGV refusing to creep.
+MOTOR_PWM_FREQ_HZ = 1000    # CHECK - listen to it at FOLLOW_SPEED
+
 # ---------------------------------------------------------------- main loop
 LOOP_PERIOD_MS = 5          # target main-loop period; keeps the button poll
                             # rate high and the line follower responsive
@@ -88,6 +94,11 @@ UTURN_COMMIT_MS = 3000      # measured on the table
 BAY_REVERSE_MS = 3000       # measured on the table
 
 TURN_SPEED = 60             # in-place turn speed, 0-100; measured on the table
+
+# The wheels counter-rotate at this fraction of TURN_SPEED. Found on the
+# table during M1: full speed overshot the line on every turn. Lower it if
+# the AGV still swings past the new line, raise it if a turn times out.
+TURN_ROTATE_SCALE = 0.8     # measured on the table
 TURN_TIMEOUT_MS = 6000      # stop and report an error if the line is not found.
                             # Must exceed DRIVE_OVER_MS + COMMIT_MS below, or a
                             # turn times out before it has begun looking.
@@ -174,7 +185,7 @@ GREEN_LED_PIN = 22          # CHECK - GP22
 #   "none"     not fitted. The scan then reports UNKNOWN for every bay, and
 #              BAY_UNKNOWN_IS_OCCUPIED decides what the mission does about
 #              it. main() prints a warning at start-up.
-RANGER_MODE = "none"        # CHECK - set to "tof" once the sensors are on
+RANGER_MODE = "tof"         # a VL53L0X on each side, one per I2C bus
 
 # Two VL53L0Xs both answer at 0x29, so they cannot share one bus without
 # XSHUT sequencing at boot. They go on separate buses instead: I2C0 on
@@ -190,25 +201,30 @@ RANGER_PINS = {
 RANGER_I2C_FREQ = 400000
 RANGER_ACTIVE_HIGH = True   # CHECK - "digital" mode only
 
-RANGER_POLL_MS = 50         # a VL53L0X measurement takes about this long
+# VL53L0X laser pulse periods, in PCLKs, as the department's example sets
+# them. Longer periods reach further and tolerate ambient light better at
+# the cost of measurement time, so these are worth a try if an empty bay
+# cannot be told from a full one. Valid pre-range values are 12 to 18 and
+# final-range 8 to 14.
+RANGER_VCSEL_PRE_RANGE = 18
+RANGER_VCSEL_FINAL_RANGE = 14
+
+# How often a sample is attempted. This must not be shorter than the
+# sensor's own measurement time - about 30 ms for a VL53L0X - or most polls
+# will find no new measurement ready and be discarded, and the scan will
+# take proportionally longer to gather its samples.
+RANGER_POLL_MS = 50         # comfortably longer than one measurement
 RANGER_CONFIRM_READS = 3    # near readings needed before a bay is called
                             # occupied; one bad answer either stacks a
                             # package on top of another or skips a free bay
 
-# A bay mouth is level with the junction, so by the time the outer trackers
-# have confirmed the marking the rangefinder is only just reaching it. The
-# AGV creeps forward for this long, sampling, before the scan is read.
-#
-# This must satisfy BAY_SCAN_ADVANCE_MS >= RANGER_POLL_MS *
-# RANGER_CONFIRM_READS, or there is no time to gather the samples and every
-# bay reads unknown. main() checks it at start-up.
-BAY_SCAN_ADVANCE_MS = 400   # CHECK - measure where the sensor sits relative
-                            # to the trackers and how fast the AGV creeps
+# How many samples a verdict looks back over. window * RANGER_POLL_MS is
+# how far back the sensor can see, and it must be shorter than the time the
+# AGV spends passing one bay - otherwise a reading blends the bay with the
+# rack frame beside it. MEASURE how long a bay takes to pass at
+# FOLLOW_SPEED and keep the window well inside it.
+RANGER_WINDOW_SAMPLES = 5   # CHECK - 5 x 50 ms = 250 ms of history
 
-# MEASURE THESE ON THE TABLE before trusting the scan. Two numbers settle it:
-# what the sensor reads with a package in the bay, and what it reads with the
-# bay empty. The threshold goes between them, and the gap between them is how
-# much margin the scan has.
 BAY_OCCUPIED_MM = 120       # CHECK - at or under this means a package is there
 BAY_MIN_MM = 20             # CHECK - below the sensor's crosstalk floor, so
                             # the reading is rejected rather than believed
@@ -231,6 +247,7 @@ GRIPPER_CLOSE_MS = 2500     # CHECK - measured on the bench
 GRIPPER_OPEN_MS = 2500      # CHECK - measured on the bench
 GRIPPER_SPEED = 100
 GRIPPER_CLOSED_IS_EXTENDED = True   # CHECK - which way grips
+GRIPPER_PWM_FREQ_HZ = 1000  # CHECK - as MOTOR_PWM_FREQ_HZ, for the actuator
 
 # How long to keep closing on a package while waiting for the Hall pair to
 # confirm a pole. If it never confirms, the loading bay is empty or the

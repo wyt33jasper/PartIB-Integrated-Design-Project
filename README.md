@@ -1,6 +1,27 @@
 # Part IB Integrated Design Project (IDP)
 
-This repository contains example source for various elements of the IDP project.
+AGV for package pickup and delivery — M1 2026.
+
+## 📖 [**Software documentation →**](DOCUMENTATION.md)
+
+Start there. It covers the pin map, how to flash the Pico, the algorithm
+flowchart, a walkthrough of `main.py`, every function in `sw/` and `tools/`,
+the configuration reference and what is still to be measured.
+
+| | |
+|---|---|
+| [`sw/`](sw) | The firmware. `main.py` runs automatically at power-up |
+| [`sw/config.py`](sw/config.py) | Every pin number and every tuned constant, in one place |
+| [`tools/`](tools) | Host-side checks and simulations — run on a PC, never uploaded |
+| [`docs/navigation.md`](docs/navigation.md) | Why the navigation is designed the way it is |
+| [`docs/map-survey.md`](docs/map-survey.md) | Survey sheet to fill in at the table |
+
+```bash
+python3 tools/test_config.py     # pins, limits, and where tuned numbers live
+python3 tools/test_map.py        # the map is consistent; every route exists
+python3 tools/test_mission.py    # the planner, against the real map
+python3 tools/simulate_run.py    # boots sw/main.py and drives a whole run
+```
 
 ## License and copyright
 

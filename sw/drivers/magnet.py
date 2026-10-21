@@ -71,7 +71,7 @@ class DigitalHallPair:
     no reading rather than guessed at.
     """
 
-    def __init__(self, north_pin, south_pin, active_high=True):
+    def __init__(self, north_pin, south_pin, active_high):
         # Pull to the inactive level so an unplugged sensor reads "no
         # magnet" rather than floating.
         pull = Pin.PULL_DOWN if active_high else Pin.PULL_UP
@@ -108,7 +108,7 @@ class AnalogueHall:
     something to assume.
     """
 
-    def __init__(self, adc_pin, deadband, north_is_high=True, centre=None):
+    def __init__(self, adc_pin, deadband, north_is_high, centre=None):
         if adc_pin is None:
             raise ValueError(
                 "No ADC pin assigned. Free GP26, GP27 or GP28 first, or use "
@@ -124,7 +124,7 @@ class AnalogueHall:
     def centre(self):
         return self._centre
 
-    def calibrate(self, samples=32):
+    def calibrate(self, samples):
         """Measure the idle output with no package in the gripper."""
         total = 0
         for _ in range(samples):
@@ -178,7 +178,7 @@ def probe_from_config(config):
 class MagnetSensor:
     """Confirm a pole before believing it, whichever probe is fitted."""
 
-    def __init__(self, probe, poll_ms=20, confirm_reads=3):
+    def __init__(self, probe, poll_ms, confirm_reads):
         self._probe = probe
         self._poll_ms = poll_ms
         self._confirm_reads = confirm_reads
@@ -197,7 +197,7 @@ class MagnetSensor:
     def confirmations(self):
         return self._count
 
-    def calibrate(self, samples=32):
+    def calibrate(self, samples):
         return self._probe.calibrate(samples)
 
     def reset(self):
