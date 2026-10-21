@@ -97,28 +97,41 @@ the navigation cannot drift apart when the map is edited.
 
 A bay produces no event either: the line simply runs out there.
 
-### The scan is a bounded look, not a running average
+### The sensor triggers the turn, not the junction
 
-The rangefinder is level with a bay mouth only briefly — the mouth is at the
-junction — and for the whole drive up the corridor it is pointed at the rack
-frame, which reads *empty*. A scanner that tracked its latest confirmed value
-would therefore answer with whatever the corridor looked like.
+The side rangefinders point out of the chassis and watch the whole time the
+AGV is moving, so the question they answer is simply *"is the bay beside me
+free?"* — asked on every main-loop pass. When the answer is yes, the turning
+function runs. The AGV never stops at a bay to measure it; it drives past the
+full ones and turns into the first free one.
 
-So each bay gets one measured look:
-
-```
-armed     at the junction, before the AGV creeps forward
-polled    while it brings the sensor level with the bay mouth
-read      once, to decide whether to turn in
-```
-
-This constrains the timing, and `main()` checks it at start-up:
+A junction is only a position update. It says **which** bay the AGV is beside,
+not whether to take it:
 
 ```
-BAY_SCAN_ADVANCE_MS >= RANGER_POLL_MS * RANGER_CONFIRM_READS
+junction fires      →  this is bay N, clear the window
+every pass          →  does bay N read free?  yes → turn in
+corridor runs out   →  shelf full, carry it home
 ```
 
-Below that there is no time to gather the samples and every bay reads unknown.
+The window is cleared on arriving beside each bay because the readings taken
+on the approach are of an empty corridor, which reads the same as an empty
+bay. **This is not a pause** — the AGV keeps driving, and the scan simply
+stays silent for the `RANGER_CONFIRM_READS × RANGER_POLL_MS` it takes to
+gather samples of that bay, about two centimetres of travel.
+
+Counting *near readings* rather than averaging distances is deliberate: an
+occupied bay returns the box face from part of the window and the rack frame
+from the rest, so the mean sits between the two and means nothing.
+
+The one timing constraint left:
+
+```
+RANGER_WINDOW_SAMPLES × RANGER_POLL_MS  ≪  time to pass one bay
+```
+
+Too long and a reading blends the bay with the frame beside it; too short and
+one stray sample swings it.
 
 ## Replanning, not following
 
@@ -182,8 +195,11 @@ design works at all:
    sensor reads with a package in the bay, and with the bay empty. The gap
    between them is how much margin the scan has. If an empty bay returns
    nothing at all, this is trivially reliable.
-2. **`BAY_SCAN_ADVANCE_MS`** — where the rangefinder sits relative to the
-   trackers, and how long the creep needs to be.
+2. **`RANGER_WINDOW_SAMPLES`** — time how long one bay takes to pass at
+   `FOLLOW_SPEED` and keep the window well inside it. Also check with
+   `sw/test_rangefinder.py` whether the verdict flickers to empty in the gap
+   *between* bays: if it does, the AGV could turn where there is no spur, and
+   the fix is to require the bay's junction marking to have been seen first.
 3. **`CYCLE_RESERVE_MS`** — time one complete collect-and-deliver cycle.
 
 ## Checking it without a robot

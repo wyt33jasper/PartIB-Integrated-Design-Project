@@ -1312,7 +1312,6 @@ future maintainer needs to know what is not finished.
 | `Drive.u_turn()` does not apply `rotate_scale` and always turns the same way, unlike `Drive.rotate()`. A u-turn therefore spins faster than a 90° turn | [`drivers/drive.py:45`](sw/drivers/drive.py#L45) |
 | `_perform_turn()` drives a u-turn at `FOLLOW_SPEED`, while a 90° turn uses `TURN_SPEED`. Probably unintended | [`main.py:189`](sw/main.py#L189) |
 | `config.SEQUENCE` is the legacy M1 route. Nothing in the flight path reads it; only `test_junction_sim.py` does | [`config.py:124`](sw/config.py#L124) |
-| `docs/navigation.md` still refers to `BAY_SCAN_ADVANCE_MS` and a start-up check in `main()`. Both were superseded by the rolling scan window and no longer exist | [`docs/navigation.md`](docs/navigation.md) |
 | `navigate_map()`’s key reader imports `msvcrt`, so it only runs on Windows | [`nav/map.py:190`](sw/nav/map.py#L190) |
 
 ### Two points to confirm with the demonstrators
