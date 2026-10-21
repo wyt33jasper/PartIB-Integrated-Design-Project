@@ -16,12 +16,19 @@ rack, much further, or nothing at all.
              occupied        empty        occupied
              short range    long range    short range
 
+The robot carries a VL53L0X on each side, one per I2C bus - both parts
+answer at 0x29, so they cannot share one without XSHUT sequencing at boot.
+A 25 degree field of view is narrow enough to look into a bay rather than
+at the rack frame around it, which is why these and not the ultrasonic
+URM09: a sideways sonar cone sees the furniture, and 1 cm resolution is
+marginal over the distances involved here.
+
 Two sensor types are supported because the choice is a wiring question:
 
   ToFRanger       a VL53L0X or TMF8x01 style device on I2C, returning a
                   distance in millimetres. Reports how far away the target
                   is, so the threshold is a tunable number rather than a
-                  property of the part.
+                  property of the part. This is what the robot uses.
 
   DigitalRanger   a sensor in IO mode - the STU-22L, for instance - whose
                   single line goes active when a target is closer than its
@@ -85,6 +92,56 @@ class ToFRanger:
         if mm > self._max_mm:
             return EMPTY                # nothing within range of the bay
         return mm <= self._occupied_mm
+
+
+class VL53L0XDevice:
+    """A VL53L0X in continuous ranging mode, read without ever blocking.
+
+    The library in libs/ cannot be called from the main loop as it stands.
+    Its read() spins up to _IO_TIMEOUT = 1000 times waiting for a
+    measurement, sleeping a millisecond between tries:
+
+        for timeout in range(_IO_TIMEOUT):
+            if self._register(_RESULT_INTERRUPT_STATUS) & 0x07:
+                break
+            utime.sleep_ms(1)
+
+    So a single read can hold the loop for a second with the stop button
+    unpolled - the same fault that the turn phases were rewritten to
+    remove. It is also unnecessary: the sensor is left ranging back to back
+    by start(), so the only question each pass is whether a new measurement
+    has landed yet.
+
+    This asks exactly that, in one register read, and reports "no sample
+    this time" rather than waiting for one. BayScanner already treats that
+    as not a sample either way, so a poll that arrives between
+    measurements costs nothing but itself.
+
+    The registers are the library's own public constants; _register is
+    borrowed because duplicating its packing here would be a second place
+    for the register map to live.
+    """
+
+    _INTERRUPT_STATUS = 0x13        # RESULT_INTERRUPT_STATUS
+    _RANGE_STATUS = 0x14            # RESULT_RANGE_STATUS
+    _INTERRUPT_CLEAR = 0x0B         # SYSTEM_INTERRUPT_CLEAR
+    _MEASUREMENT_READY = 0x07
+
+    def __init__(self, sensor):
+        self._sensor = sensor
+        sensor.start()              # continuous, back-to-back ranging
+
+    def read(self):
+        """The newest measurement in mm, or None if none is ready yet."""
+        status = self._sensor._register(self._INTERRUPT_STATUS)
+        if not status & self._MEASUREMENT_READY:
+            return None
+        mm = self._sensor._register(self._RANGE_STATUS + 10, struct=">H")
+        self._sensor._register(self._INTERRUPT_CLEAR, 0x01)
+        return mm
+
+    def stop(self):
+        self._sensor.stop()
 
 
 class TMF8x01Device:
@@ -263,11 +320,28 @@ def ranger_from_config(config, side):
                              active_high=config.RANGER_ACTIVE_HIGH)
 
     if mode == "tof":
-        from libs.VL53L0X.VL53L0X import VL53L0X
-        device = VL53L0X(_i2c(pins["i2c_id"], pins["sda"], pins["scl"],
-                              config.RANGER_I2C_FREQ),
-                         address=pins.get("address", 0x29))
-        device.start()
+        # A sensor that is unplugged or mis-wired raises here, during its
+        # own register setup. Letting that propagate would stop main()
+        # before the AGV could be started at all, so the side falls back to
+        # NullRanger: the scan reports that bay as unknown and the mission
+        # policy decides, which is a robot that still runs a route rather
+        # than one that will not boot.
+        try:
+            from libs.VL53L0X.VL53L0X import VL53L0X
+            sensor = VL53L0X(_i2c(pins["i2c_id"], pins["sda"], pins["scl"],
+                                  config.RANGER_I2C_FREQ),
+                             address=pins.get("address", 0x29))
+            sensor.set_Vcsel_pulse_period(sensor.vcsel_period_type[0],
+                                          config.RANGER_VCSEL_PRE_RANGE)
+            sensor.set_Vcsel_pulse_period(sensor.vcsel_period_type[1],
+                                          config.RANGER_VCSEL_FINAL_RANGE)
+            device = VL53L0XDevice(sensor)
+        except (OSError, RuntimeError) as exc:
+            print("WARNING: no {} rangefinder on I2C{} (GP{}/GP{}): "
+                  "{}".format(side, pins["i2c_id"], pins["sda"],
+                              pins["scl"], exc))
+            return NullRanger()
+
         return ToFRanger(device,
                          occupied_mm=config.BAY_OCCUPIED_MM,
                          min_mm=config.BAY_MIN_MM,

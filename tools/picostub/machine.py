@@ -64,3 +64,32 @@ class ADC:
 
     def read_u16(self):
         return self.value_u16
+
+
+class I2C:
+    """Host stand-in for machine.I2C.
+
+    Registers every bus so a test can see which pins were claimed, and
+    raises OSError on any transfer, because nothing is actually wired to a
+    desktop. That is the same thing an unplugged sensor does on the robot,
+    so building the real driver against this exercises the fallback path in
+    rangefinder.ranger_from_config.
+    """
+
+    registry = []
+
+    def __init__(self, id=0, sda=None, scl=None, freq=400000):
+        self.id = id
+        self.sda = getattr(sda, "no", sda)
+        self.scl = getattr(scl, "no", scl)
+        self.freq = freq
+        I2C.registry.append(self)
+
+    def scan(self):
+        return []
+
+    def readfrom_mem(self, addr, register, size):
+        raise OSError("no I2C device at 0x%02x (host stub)" % addr)
+
+    def writeto_mem(self, addr, register, data):
+        raise OSError("no I2C device at 0x%02x (host stub)" % addr)

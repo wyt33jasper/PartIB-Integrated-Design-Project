@@ -185,7 +185,7 @@ GREEN_LED_PIN = 22          # CHECK - GP22
 #   "none"     not fitted. The scan then reports UNKNOWN for every bay, and
 #              BAY_UNKNOWN_IS_OCCUPIED decides what the mission does about
 #              it. main() prints a warning at start-up.
-RANGER_MODE = "none"        # CHECK - set to "tof" once the sensors are on
+RANGER_MODE = "tof"         # a VL53L0X on each side, one per I2C bus
 
 # Two VL53L0Xs both answer at 0x29, so they cannot share one bus without
 # XSHUT sequencing at boot. They go on separate buses instead: I2C0 on
@@ -201,7 +201,19 @@ RANGER_PINS = {
 RANGER_I2C_FREQ = 400000
 RANGER_ACTIVE_HIGH = True   # CHECK - "digital" mode only
 
-RANGER_POLL_MS = 50         # a VL53L0X measurement takes about this long
+# VL53L0X laser pulse periods, in PCLKs, as the department's example sets
+# them. Longer periods reach further and tolerate ambient light better at
+# the cost of measurement time, so these are worth a try if an empty bay
+# cannot be told from a full one. Valid pre-range values are 12 to 18 and
+# final-range 8 to 14.
+RANGER_VCSEL_PRE_RANGE = 18
+RANGER_VCSEL_FINAL_RANGE = 14
+
+# How often a sample is attempted. This must not be shorter than the
+# sensor's own measurement time - about 30 ms for a VL53L0X - or most polls
+# will find no new measurement ready and be discarded, and the scan will
+# take proportionally longer to gather its samples.
+RANGER_POLL_MS = 50         # comfortably longer than one measurement
 RANGER_CONFIRM_READS = 3    # near readings needed before a bay is called
                             # occupied; one bad answer either stacks a
                             # package on top of another or skips a free bay
