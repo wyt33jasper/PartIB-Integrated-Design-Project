@@ -10,8 +10,15 @@ from utime import ticks_ms, ticks_diff
 
 class LineFollower:
     def __init__(self, drive, sensors,
-                 speed=60, steer=40, reverse_speed=35,
-                 lost_timeout_ms=2000):
+                 speed, steer, reverse_speed, lost_timeout_ms):
+        """Every tuning value is required rather than defaulted.
+
+        A default here would be a second place for a tuned number to live,
+        and it would silently disagree with config.py the moment one of
+        them was changed - which is exactly what had happened: the defaults
+        said 60/40 while config said 50/20, and tools/tune.py measured 40
+        straying 17.6 mm on a tape 10 mm wide.
+        """
         self._drive = drive
         self._sensors = sensors
         self._speed = speed

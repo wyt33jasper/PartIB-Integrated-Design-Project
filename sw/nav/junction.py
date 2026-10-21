@@ -77,7 +77,7 @@ class JunctionDetector:
     Call poll() frequently from the main loop. It does not wait for either
     timer; it returns NONE until the current state has made progress.
     """
-    def __init__(self, sensors, confirm_ms=200, clear_ms=200):
+    def __init__(self, sensors, confirm_ms, clear_ms):
         self._sensors = sensors
         self._confirm_ms = confirm_ms
         self._clear_ms = clear_ms

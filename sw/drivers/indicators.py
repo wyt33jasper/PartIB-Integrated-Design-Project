@@ -94,6 +94,7 @@ class PoleIndicator:
     """
 
     def __init__(self, red_pin, green_pin, north=NORTH, south=SOUTH):
+        """north and south are the pole labels, not tuning values."""
         self._red = SteadyLamp(red_pin)
         self._green = SteadyLamp(green_pin)
         self._north = north

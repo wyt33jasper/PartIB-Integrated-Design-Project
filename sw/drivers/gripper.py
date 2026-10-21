@@ -22,7 +22,6 @@ keeps running throughout.
 from machine import Pin, PWM
 from utime import ticks_ms, ticks_diff
 
-PWM_FREQ_HZ = 1000
 _FULL_SCALE = 65535
 
 OPEN = "open"
@@ -37,11 +36,11 @@ class Gripper:
     _EXTEND = 0
     _RETRACT = 1
 
-    def __init__(self, dir_pin, pwm_pin, close_ms, open_ms, speed=100,
-                 closed_is_extended=True):
+    def __init__(self, dir_pin, pwm_pin, close_ms, open_ms, speed,
+                 pwm_freq_hz, closed_is_extended=True):
         self._dir = Pin(dir_pin, Pin.OUT)
         self._pwm = PWM(Pin(pwm_pin))
-        self._pwm.freq(PWM_FREQ_HZ)
+        self._pwm.freq(pwm_freq_hz)
         self._pwm.duty_u16(0)
 
         self._close_ms = close_ms
@@ -138,6 +137,7 @@ def gripper_from_config(config):
                       close_ms=config.GRIPPER_CLOSE_MS,
                       open_ms=config.GRIPPER_OPEN_MS,
                       speed=config.GRIPPER_SPEED,
+                      pwm_freq_hz=config.GRIPPER_PWM_FREQ_HZ,
                       closed_is_extended=config.GRIPPER_CLOSED_IS_EXTENDED)
     gripper.fitted = True
     return gripper

@@ -60,7 +60,7 @@ class ToFRanger:
     front of it at all, and treating that as a box would skip every bay.
     """
 
-    def __init__(self, device, occupied_mm, min_mm=20, max_mm=1200):
+    def __init__(self, device, occupied_mm, min_mm, max_mm):
         self._device = device
         self._occupied_mm = occupied_mm
         self._min_mm = min_mm
@@ -104,7 +104,7 @@ class DigitalRanger:
     here - but equally nothing to adjust if it trips at the wrong range.
     """
 
-    def __init__(self, pin_no, active_high=True):
+    def __init__(self, pin_no, active_high):
         from machine import Pin
         # Pull to the inactive level, so an unplugged sensor reads "nothing
         # there" rather than floating. For a bay scan that means the AGV
@@ -169,7 +169,7 @@ class BayScanner:
     discovered on the table.
     """
 
-    def __init__(self, left, right, poll_ms=50, confirm_reads=3):
+    def __init__(self, left, right, poll_ms, confirm_reads):
         self._rangers = {LEFT: left, RIGHT: right}
         self._poll_ms = poll_ms
         self._confirm_reads = confirm_reads
