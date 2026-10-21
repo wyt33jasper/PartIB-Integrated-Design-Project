@@ -105,7 +105,6 @@ class Mission:
         self._target = None
         self._pickup = None             # the loading bay being worked
         self._shelf = None              # ((corridor, bay), ...) or None
-        self._scan_index = 0
         self._started_ms = None
         self._now_ms = ticks_ms()
         self._cycle_started_ms = None
@@ -194,47 +193,104 @@ class Mission:
         self._take_next_pickup()
         return self._depart()
 
-    def reached_junction(self):
-        """Record arriving at the junction just detected.
+    def at_junction(self):
+        """The turn to make at the junction just detected.
 
-        Returns True when a bay sits beside the AGV here and the scan is
-        about to be read, so the main loop can bring the rangefinder level
-        with the bay mouth before answering. The look is armed here, which
-        means the answer rests only on samples taken during that creep
-        forward - not on the long drive up the corridor, where the sensor
-        is pointed at the rack frame and everything reads empty.
-        """
-        self._walk_to_here()
-
-        if (self.phase in (TO_SHELF, SCAN)
-                and self._shelf is not None
-                and self.state.current_node
-                == self._shelf[self._scan_index][0]):
-            self._scanner.arm()
-            return True
-        return False
-
-    def decide(self):
-        """The turn to make at the junction just reached.
+        During the delivery leg a junction is only a position update - it
+        says which bay the AGV is now beside. Whether to turn into that bay
+        is not decided here; the side rangefinder decides that, on every
+        pass, through bay_beside().
 
         Returns None when the run is over or the AGV is somewhere the map
         cannot route it out of - in both cases the main loop should stop.
         """
+        passed = self._bay_here() if self.phase == SCAN else None
+
+        self._walk_to_here()
+
+        # The corridor entrance is the first bay, so the scan goes live as
+        # soon as the AGV stands beside one. The target is the far end of
+        # the corridor, which it only reaches if every bay was full, so
+        # arriving at the target cannot be what starts the scan.
+        if self.phase == TO_SHELF and self._bay_here() is not None:
+            self.phase = SCAN
+
+        if passed is not None and self._bay_here() != passed:
+            # Driven past it without the sensor ever reporting it free, so
+            # it held a package. Recorded for the log, not for the plan.
+            self.skipped.append(passed)
+
+        if self.phase == SCAN and self._bay_here() is not None:
+            # Arriving beside a new bay. Clear the window, or the verdict
+            # would be answered from the approach - where the sensor was
+            # pointed down an empty corridor and everything read far. That
+            # is not a pause: the AGV keeps driving, and bay_beside() stays
+            # silent for the confirm_reads * RANGER_POLL_MS it takes to
+            # gather samples of this bay, which is a couple of centimetres
+            # of travel.
+            self._scanner.arm()
+
         if self.state.current_node == self._target:
             if not self._target_reached():
                 return None
 
         return self._depart()
 
-    def at_junction(self):
-        """reached_junction() and decide() together, with no scan pause.
+    def bay_beside(self):
+        """The turn into the bay beside the AGV, if the sensor says it is free.
 
-        Convenient for a test, and correct whenever the rangefinders are
-        not fitted. On the robot the main loop calls the two halves, so the
-        sensor gets its moment beside the bay mouth in between.
+        Called every main-loop pass while the AGV is running a corridor.
+        Returns a turn as soon as the rangefinder on the relevant side
+        reports an empty bay, and None otherwise - so the AGV drives on
+        past the full ones without stopping at any of them.
+
+        This is the whole of the bay choice. The junction count says which
+        bay the AGV is beside; the sensor says whether to take it.
         """
-        self.reached_junction()
-        return self.decide()
+        if self.phase != SCAN:
+            return None
+
+        bay = self._bay_here()
+        if bay is None:
+            return None             # between bays, nothing to look into
+
+        side = self.state.turn_to(bay)
+        if side not in (LEFT, RIGHT):
+            raise RuntimeError(
+                "{} is {} of {}, not to one side".format(
+                    bay, side, self.state.current_node))
+
+        if not self._is_free(side):
+            return None
+
+        self.phase = DELIVER
+        self._target = bay
+        return self.state.face(bay)
+
+    def _bay_here(self):
+        """The bay beside the AGV right now, or None if it is between bays.
+
+        Read off the shelf rather than counted into an index of its own, so
+        there is no separate tally that can disagree with where the AGV
+        thinks it is.
+        """
+        if self._shelf is None:
+            return None
+        for corridor, bay in self._shelf:
+            if corridor == self.state.current_node:
+                return bay
+        return None
+
+    def _is_free(self, side):
+        """Whether the sensor on `side` is reporting a free bay."""
+        verdict = self._scanner.occupied(side)
+        if verdict is rangefinder.EMPTY:
+            return True
+        # A bay the sensor could not read is skipped by default. Skipping
+        # costs the width of a junction; stacking one package on another
+        # costs the package.
+        return (verdict is rangefinder.UNKNOWN
+                and not self._unknown_is_occupied)
 
     def at_bay(self):
         """What to do at the bay the AGV has just driven into.
@@ -274,9 +330,14 @@ class Mission:
 
         self.collected_count += 1
         self._shelf = shelf_for(pole, side_of_loading_bay(self._pickup))
-        self._scan_index = 0
         self.phase = TO_SHELF
-        self._target = self._shelf[0][0]
+        # Aim at the far end of the corridor. The AGV is not trying to
+        # reach it - the sensor will normally stop it at the first free bay
+        # along the way - but it is where the drive ends if every bay on
+        # the shelf turns out to be full.
+        self._target = self._shelf[-1][0]
+        # Readings taken on the way here were of something else entirely.
+        self._scanner.arm()
 
     def dropped(self):
         """Report the gripper opened and the package left in the bay."""
@@ -336,10 +397,16 @@ class Mission:
     def _target_reached(self):
         """Advance the phase on arriving at the target. False ends the run."""
         if self.phase == TO_SHELF:
+            # Only reachable on a shelf one bay long, where the entrance
+            # and the far end are the same junction.
             self.phase = SCAN
-            return self._scan_here()
+            return self._shelf_full() if not self._is_free(
+                self.state.turn_to(self._bay_here())) else True
         if self.phase == SCAN:
-            return self._scan_here()
+            # The far end of the corridor, with the sensor never having
+            # reported a free bay on the way up it. The line stops here, so
+            # this is the moment to decide rather than drive on.
+            return self._shelf_full()
         if self.phase == TO_HOME:
             self.phase = FINISHED
             self._target = None
@@ -350,43 +417,14 @@ class Mission:
             "Reached {} in phase {} unexpectedly".format(self._target,
                                                          self.phase))
 
-    def _scan_here(self):
-        """Test the bay beside the AGV and either turn in or drive on."""
-        corridor, bay = self._shelf[self._scan_index]
-        if self.state.current_node != corridor:
-            raise RuntimeError(
-                "Scanning {} but standing at {}".format(corridor,
-                                                        self.state.current_node))
-
-        side = self.state.turn_to(bay)
-        if side not in (LEFT, RIGHT):
-            raise RuntimeError(
-                "{} is {} of {}, not to one side".format(bay, side, corridor))
-
-        verdict = self._scanner.occupied(side)
-        if verdict is rangefinder.EMPTY or (
-                verdict is rangefinder.UNKNOWN and not self._unknown_is_occupied):
-            self.phase = DELIVER
-            self._target = bay
-            return True
-
-        # Occupied, or unreadable and being treated as occupied. Either way
-        # the AGV carries on up the corridor; a skipped bay costs only the
-        # width of the junction.
-        self.skipped.append(bay)
-        self._scan_index += 1
-        if self._scan_index >= len(self._shelf):
-            return self._shelf_full()
-        self._target = self._shelf[self._scan_index][0]
-        return True
-
     def _shelf_full(self):
-        """Every bay on the destination shelf was occupied.
+        """The corridor ran out with no free bay reported on either look.
 
         There is nowhere correct to put the package, and the wrong shelf
         scores less than not delivering at all once the penalty for a
         misplaced package is counted, so the AGV takes it home.
         """
+        self.skipped.append(self._shelf[-1][1])
         self.phase = TO_HOME
         self._target = self._home
         return True

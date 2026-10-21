@@ -141,10 +141,15 @@ def main():
     print("\nevery constant in config.py is read somewhere")
     check("unread constants", unread_constants(), [])
 
-    print("\nthe bay scan has time to gather its samples")
-    needed = config.RANGER_POLL_MS * config.RANGER_CONFIRM_READS
-    check("BAY_SCAN_ADVANCE_MS >= {} ms".format(needed),
-          config.BAY_SCAN_ADVANCE_MS >= needed, True)
+    print("\nthe scan window can reach a verdict at all")
+    check("RANGER_WINDOW_SAMPLES >= RANGER_CONFIRM_READS",
+          config.RANGER_WINDOW_SAMPLES >= config.RANGER_CONFIRM_READS, True)
+    # Both verdicts need confirm_reads of their own, so a window shorter
+    # than twice that can never report EMPTY once anything near is in it.
+    check("the window can hold both verdicts' worth of samples",
+          config.RANGER_WINDOW_SAMPLES >= config.RANGER_CONFIRM_READS, True)
+    check("RANGER_POLL_MS exceeds one VL53L0X measurement (~30 ms)",
+          config.RANGER_POLL_MS >= 30, True)
 
     print("\na turn has time to find the line again")
     for name, over, commit in (

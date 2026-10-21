@@ -45,10 +45,10 @@ def test_rangefinder():
     print("\noccupied at or under {} mm; readings under {} mm are rejected "
           "as\ncrosstalk and over {} mm as nothing in range".format(
               config.BAY_OCCUPIED_MM, config.BAY_MIN_MM, config.BAY_MAX_MM))
-    print("\nA scan on the robot lasts {} ms and needs {} near readings of "
-          "the\n{} it can take in that time.".format(
-              config.BAY_SCAN_ADVANCE_MS, scanner.confirm_reads,
-              config.BAY_SCAN_ADVANCE_MS // scanner.poll_ms))
+    print("\nA verdict looks back {} ms ({} samples) and needs {} of them "
+          "to\nagree. Keep that well inside the time one bay takes to "
+          "pass.".format(scanner.window_ms, config.RANGER_WINDOW_SAMPLES,
+                         scanner.confirm_reads))
     print()
     print("  left            right           verdict (left / right)")
 
@@ -70,12 +70,6 @@ def test_rangefinder():
                 "-" if right_mm is None else right_mm,
                 _VERDICT[scanner.occupied(LEFT)],
                 _VERDICT[scanner.occupied(RIGHT)]))
-
-        # The robot arms a fresh look at every bay, so a bench reading that
-        # never re-arms would answer from minutes of history. Re-arm each
-        # time a full scan's worth of time has passed.
-        if scanner.samples(LEFT) > scanner.confirm_reads * 2:
-            scanner.arm()
 
         sleep_ms(config.LOOP_PERIOD_MS)
 

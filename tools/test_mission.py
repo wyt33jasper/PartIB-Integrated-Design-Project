@@ -52,35 +52,31 @@ _OFFSET = {"straight": 0, "right": 1, "uturn": 2, "left": 3}
 
 
 class FakeScanner:
-    """Reports what the side rangefinders would say beside each bay.
+    """Reports whatever is beside the AGV, as the real scanner would.
 
-    Keeps the real scanner's shape: a look has to be armed, and only the
-    samples taken during it count. That is what makes the test able to
-    catch a reading being taken at the wrong moment.
+    The real one keeps a rolling window; what matters to the mission is
+    only that occupied(side) describes where the AGV is now, so this
+    reports the current surroundings directly.
     """
 
     fitted = True
     confirm_reads = 3
     poll_ms = 50
+    window_ms = 250
 
     def __init__(self):
         self.reading = {rangefinder.LEFT: None, rangefinder.RIGHT: None}
         self.polls = 0
-        self._samples = {rangefinder.LEFT: 0, rangefinder.RIGHT: 0}
 
     def arm(self):
         self.reading = {rangefinder.LEFT: None, rangefinder.RIGHT: None}
-        self._samples = {rangefinder.LEFT: 0, rangefinder.RIGHT: 0}
+
+    reset = arm
 
     def poll(self):
         self.polls += 1
-        for side in rangefinder.SIDES:
-            if self.reading[side] is not None:
-                self._samples[side] += 1
 
     def occupied(self, side):
-        if self._samples[side] < self.confirm_reads:
-            return rangefinder.UNKNOWN
         return self.reading[side]
 
 
@@ -212,20 +208,25 @@ class Table:
                 self._agree_fully("backed out to {}".format(self.node))
                 continue
 
-            # A junction. Present whatever is beside the AGV first, the way
-            # the real scanner would already have measured it on approach.
-            if m.reached_junction():
-                # The real loop creeps forward here, sampling. Present the
-                # bay beside the AGV for as many samples as that allows.
-                self._present_bays()
-                for _ in range(self.scanner.confirm_reads):
-                    self.scanner.poll()
-            turn = m.decide()
+            # A junction is only a position update now.
+            turn = m.at_junction()
             self._agree_node("junction at {}".format(self.node))
             if turn is None:
                 self.log.append("{}: run over ({})".format(self.node,
                                                            m.phase))
                 return "done"
+
+            # Standing beside a bay, the side sensors get their say before
+            # the AGV drives on. On the robot this is asked every pass; one
+            # look per bay decides the same thing here.
+            self._present_bays()
+            self.scanner.poll()
+            turn_in = m.bay_beside()
+            if turn_in is not None:
+                self.log.append("{}: sensor says {} is free".format(
+                    self.node, m.target))
+                turn = turn_in
+
             self._turn(turn)
             self._agree_fully("turned {} at {}".format(turn, self.node))
 

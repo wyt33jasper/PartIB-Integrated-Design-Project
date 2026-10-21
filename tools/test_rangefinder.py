@@ -127,11 +127,12 @@ def main():
                        max_mm=ceiling)
     check("reported as unreadable, not raised", broken.near(), UNKNOWN)
 
-    print("\na scan answers only from its own look")
+    print("\na verdict comes from the last few samples, not all of them")
     left, right = FakeVL53L0X(), FakeVL53L0X()
     scanner = BayScanner(ranger(left), ranger(right),
                          poll_ms=config.RANGER_POLL_MS,
-                         confirm_reads=config.RANGER_CONFIRM_READS)
+                         confirm_reads=config.RANGER_CONFIRM_READS,
+                         window_samples=config.RANGER_WINDOW_SAMPLES)
 
     def sample(l_mm, r_mm, times=1):
         for _ in range(times):
@@ -148,34 +149,43 @@ def main():
     check("the last sample settles it", scanner.occupied(LEFT), OCCUPIED)
     check("and the other side independently", scanner.occupied(RIGHT), EMPTY)
 
-    print("\narming discards the previous bay's evidence")
+    print("\narming discards everything from before")
     scanner.arm()
     check("left forgotten", scanner.occupied(LEFT), UNKNOWN)
     check("right forgotten", scanner.occupied(RIGHT), UNKNOWN)
     check("sample counts cleared", (scanner.samples(LEFT),
                                     scanner.near_count(LEFT)), (0, 0))
 
-    print("\na stale reading from the corridor cannot answer for a bay")
-    # Drive past open corridor - far readings - then arm at the junction and
-    # look into a bay that is full. The corridor must not have voted.
-    sample(900, 900, times=10)
+    print("\nthe window forgets the corridor on its own, without arming")
+    # Drive past open corridor - far readings - and then arrive beside a
+    # bay that is full. Nothing re-arms; the window simply ages out.
+    sample(900, 900, times=config.RANGER_WINDOW_SAMPLES)
     check("the corridor reads empty", scanner.occupied(LEFT), EMPTY)
-    scanner.arm()
-    sample(60, 60, times=config.RANGER_CONFIRM_READS)
+    sample(60, 60, times=config.RANGER_WINDOW_SAMPLES)
     check("the bay reads occupied", scanner.occupied(LEFT), OCCUPIED)
+    check("and the old far readings are gone",
+          scanner.near_count(LEFT), config.RANGER_WINDOW_SAMPLES)
 
-    print("\nthe scan window is long enough to gather the samples")
-    needed = config.RANGER_POLL_MS * config.RANGER_CONFIRM_READS
-    check("BAY_SCAN_ADVANCE_MS >= {} ms".format(needed),
-          config.BAY_SCAN_ADVANCE_MS >= needed, True)
+    print("\nthe window is short enough to be about one bay")
+    check("a verdict looks back {} ms".format(scanner.window_ms),
+          scanner.window_ms, config.RANGER_WINDOW_SAMPLES
+          * config.RANGER_POLL_MS)
     check("RANGER_POLL_MS exceeds one VL53L0X measurement (~30 ms)",
           config.RANGER_POLL_MS >= 30, True)
+    raised = False
+    try:
+        BayScanner(NullRanger(), NullRanger(), poll_ms=50, confirm_reads=3,
+                   window_samples=2)
+    except ValueError:
+        raised = True
+    check("a window shorter than confirm_reads is refused", raised, True)
 
     print("\nreadings the sensor could not make are not votes")
     left2, right2 = FakeVL53L0X(), FakeVL53L0X()
     scanner2 = BayScanner(ranger(left2), ranger(right2),
                           poll_ms=config.RANGER_POLL_MS,
-                          confirm_reads=config.RANGER_CONFIRM_READS)
+                          confirm_reads=config.RANGER_CONFIRM_READS,
+                          window_samples=config.RANGER_WINDOW_SAMPLES)
     for _ in range(10):
         left2.ready = right2.ready = False      # no measurement ever lands
         utime.advance(config.RANGER_POLL_MS)

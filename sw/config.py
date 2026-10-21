@@ -218,20 +218,13 @@ RANGER_CONFIRM_READS = 3    # near readings needed before a bay is called
                             # occupied; one bad answer either stacks a
                             # package on top of another or skips a free bay
 
-# A bay mouth is level with the junction, so by the time the outer trackers
-# have confirmed the marking the rangefinder is only just reaching it. The
-# AGV creeps forward for this long, sampling, before the scan is read.
-#
-# This must satisfy BAY_SCAN_ADVANCE_MS >= RANGER_POLL_MS *
-# RANGER_CONFIRM_READS, or there is no time to gather the samples and every
-# bay reads unknown. main() checks it at start-up.
-BAY_SCAN_ADVANCE_MS = 400   # CHECK - measure where the sensor sits relative
-                            # to the trackers and how fast the AGV creeps
+# How many samples a verdict looks back over. window * RANGER_POLL_MS is
+# how far back the sensor can see, and it must be shorter than the time the
+# AGV spends passing one bay - otherwise a reading blends the bay with the
+# rack frame beside it. MEASURE how long a bay takes to pass at
+# FOLLOW_SPEED and keep the window well inside it.
+RANGER_WINDOW_SAMPLES = 5   # CHECK - 5 x 50 ms = 250 ms of history
 
-# MEASURE THESE ON THE TABLE before trusting the scan. Two numbers settle it:
-# what the sensor reads with a package in the bay, and what it reads with the
-# bay empty. The threshold goes between them, and the gap between them is how
-# much margin the scan has.
 BAY_OCCUPIED_MM = 120       # CHECK - at or under this means a package is there
 BAY_MIN_MM = 20             # CHECK - below the sensor's crosstalk floor, so
                             # the reading is rejected rather than believed
