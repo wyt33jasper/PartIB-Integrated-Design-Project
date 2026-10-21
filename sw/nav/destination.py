@@ -1,6 +1,6 @@
 """Work out where a package has to go.
 
-The task spec fixes the whole rule, and no QR code is needed for any of it:
+The task spec fixes the whole rule, and the magnet pole is all it needs:
 
     "Boxes collected from the left-hand areas (when looking at the traffic
      lights), go to 'A' rack, those on the right-hand area to 'B' rack. The
@@ -19,6 +19,23 @@ knowledge, not a measurement.
 The bay number is not decided here. The spec says to "only deliver if the
 location is not already occupied", so the delivery step walks the six
 candidate bays in order and takes the first free one.
+
+WHY THERE IS NO QR CODE
+
+The brief says in passing that "packages are individually identified with a
+QR code which identifies a specific storage location", so this is the first
+question anyone reading it will ask. The scoring table is what settles it:
+the only identification it pays for is
+
+    "Identified by north/south pole (red/green LED) and delivered to the
+     correct depot"                                              +15/pallet
+
+There is no score for reading a code, and the rule quoted above already
+fixes the destination completely from the pole and the collection side. A
+reader would have been a second way to get the same answer, on a sensor
+that can fail to decode, so it was taken out. If a future brief makes the
+QR code authoritative - a storage location the pole rule cannot express -
+then it overrides this module rather than supplementing it.
 """
 
 from drivers.magnet import NORTH, SOUTH

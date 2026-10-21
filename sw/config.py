@@ -113,19 +113,6 @@ INITIAL_DIRECTION = "N"     # CHECK - the direction the AGV faces at the start
 SEQUENCE = ["HOME", "RH", "RC", "R1", "R1_BAY", "R1", "R2", "RB1", "RB2",
             "RB2_BAY", "RB2", "RB1", "R2", "R1", "RC", "RH", "HOME"]
 
-# ------------------------------------------------------------------- QR code
-# The Tiny Code Reader sits on I2C at address 0x0C and decodes the package's
-# QR code itself. The department's example uses I2C0 on GP16/GP17.
-QR_I2C_ID = 0
-QR_SDA_PIN = 16             # CHECK - GP16
-QR_SCL_PIN = 17             # CHECK - GP17
-QR_I2C_FREQ = 400000
-
-QR_POLL_MS = 50             # the reader wants ~50 ms between reads
-QR_CONFIRM_READS = 3        # identical reads needed before a target is acted
-                            # on; a misread delivers to the wrong depot, +5
-                            # instead of +15
-
 # --------------------------------------------------------------- magnet pole
 # How the pole is read. The M1 wiring decides this, not preference.
 #
@@ -191,9 +178,11 @@ RANGER_MODE = "none"        # CHECK - set to "tof" once the sensors are on
 
 # Two VL53L0Xs both answer at 0x29, so they cannot share one bus without
 # XSHUT sequencing at boot. They go on separate buses instead: I2C0 on
-# GP16/GP17 alongside the QR reader (0x0C, no clash), I2C1 on GP10/GP11.
+# GP16/GP17, I2C1 on GP10/GP11. Nothing else is on either bus now that the
+# QR reader has gone, so there is no address to work around.
+#
 # A VL53L0X and a TMF8x01 (0x41) would share one bus happily, if the team
-# ends up with one of each.
+# ends up with one of each - which would free GP10/GP11 again.
 RANGER_PINS = {
     "left":  {"i2c_id": 0, "sda": 16, "scl": 17, "address": 0x29, "pin": 8},
     "right": {"i2c_id": 1, "sda": 10, "scl": 11, "address": 0x29, "pin": 9},

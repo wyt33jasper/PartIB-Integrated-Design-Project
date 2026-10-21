@@ -155,14 +155,19 @@ GP4,5     left motor            GP20      button
 GP6,7     right motor           GP21,22   red / green pole lamps
 GP10,11   I2C1 - right ranger   GP26      amber beacon
 GP12,14   Hall north / south    GP27,28   turn trackers
-GP16,17   I2C0 - QR + left ranger
+GP16,17   I2C0 - left ranger
 free: GP9, GP13, GP15 (servo), GP2,3
 ```
 
 Two VL53L0Xs both answer at `0x29`, so they cannot share one bus without
 XSHUT sequencing at boot. They go on separate buses instead — no boot-time
 address juggling. A VL53L0X and a TMF8x01 (`0x41`) would share one bus
-happily, if the team ends up with one of each.
+happily, if the team ends up with one of each, which would free GP10/GP11.
+
+There is no QR reader. The brief mentions one in passing, but the scoring
+only pays for identification "by north/south pole (red/green LED)", and the
+rack-and-deck rule already fixes the destination completely from the pole
+and the collection side. See the note in `sw/nav/destination.py`.
 
 Use **time-of-flight, not ultrasonic**, for the sides. A sideways ultrasonic
 cone sees the rack frame rather than the package, and 1 cm resolution is

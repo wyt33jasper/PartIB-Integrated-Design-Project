@@ -1,6 +1,9 @@
 """Tell a package's north pole from its south pole.
 
-This is the only measurement the delivery depends on. From the task spec:
+This is the only measurement the delivery depends on, and since the QR
+reader was removed it is the only way the AGV identifies a package at all -
+so a failure here is not a degraded delivery, it is no delivery. From the
+task spec:
 
     "It must be able to automatically recognise packages via magnetic field
      measurement, thus identifying the storage location or delivery bay"
@@ -11,7 +14,17 @@ This is the only measurement the delivery depends on. From the task spec:
 and the scoring gives +15 a pallet for a package identified by pole and
 delivered correctly, against +5 for the wrong depot. Getting the pole wrong
 costs two thirds of the score for that package, so the reading is confirmed
-rather than trusted on sight.
+rather than trusted on sight: MAGNET_CONFIRM_READS identical readings are
+required, a transient cannot flip a pole that is already reported, and both
+sensors reading high at once is rejected rather than guessed at.
+
+With nothing left to cross-check it against, sw/test_magnet.py on the bench
+is the whole verification - it settles which sensor is which and what the
+working distance is. Repeat it with several packages: the spec warns the
+blocks vary, and if their magnets vary too then so does the distance at
+which a pole becomes readable. That distance is also the grip trigger,
+because neither sensor reads high until the magnet is in range, so "a pole
+is readable" and "close enough to grip" are the same signal.
 
 There are two ways to read the pole, and which one is available is decided
 by the wiring rather than by preference:
