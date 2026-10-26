@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "Mpy Remote Workspace",
+			"uri": "pico:"
+		}
+	],
+	"settings": {
+		"micropico.syncFileTypes": [
+			"py",
+			"txt",
+			"log",
+			"json",
+			"xml",
+			"html",
+			"js",
+			"css",
+			"mpy",
+			"hex"
+		]
+	}
+}

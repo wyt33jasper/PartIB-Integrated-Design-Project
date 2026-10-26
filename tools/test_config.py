@@ -132,9 +132,10 @@ def main():
     # Two that are not tuning values:
     #   BAYS_PER_RACK is a fact about the table, and test_map.py already
     #   checks it against the map - six bays per shelf, twenty-four total.
-    #   RIGHT is a bit flag, so that LEFT | RIGHT gives BOTH.
+    #   RIGHT and FULL are result codes, not measurements.
     allowed = {"sw/nav/destination.py:53 BAYS_PER_RACK = 6",
-               "sw/nav/junction.py:45 RIGHT = 2"}
+               "sw/nav/junction.py:45 RIGHT = 2",
+               "sw/nav/bay.py:28 FULL = 2"}
     check("module constants outside config.py",
           [c for c in module_constants() if c not in allowed], [])
 

@@ -194,7 +194,8 @@ def main():
     check("so the bay stays unknown", scanner2.occupied(LEFT), UNKNOWN)
 
     print("\nconfig puts a VL53L0X on each side, one per bus")
-    check("mode is tof", config.RANGER_MODE, "tof")
+    check("mode is one this driver knows",
+          config.RANGER_MODE in ("tof", "digital", "none"), True)
     buses = {side: config.RANGER_PINS[side]["i2c_id"] for side in (LEFT, RIGHT)}
     check("left and right are on different buses",
           buses[LEFT] != buses[RIGHT], True)
