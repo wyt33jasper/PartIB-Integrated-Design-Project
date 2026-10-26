@@ -279,3 +279,18 @@ PICKUP_ORDER = ["R1_BAY", "R2_BAY", "L1_BAY", "L2_BAY"]
 RUN_LIMIT_MS = 5 * 60 * 1000
 CYCLE_RESERVE_MS = 90 * 1000    # CHECK - one whole collect-and-deliver cycle
                                 # plus the drive home
+
+# ------------------------------------------------- bay distance sensors
+# Two VL53L0X looking out of the sides of the AGV, level with the junction
+# sensors, so a junction marking means a bay is beside us right now.
+# Both answer at 0x29, so they need separate buses.
+DISTANCE_FITTED = True
+DISTANCE_LEFT = (0, 8, 9)       # I2C0: GP8 SDA, GP9 SCL
+DISTANCE_RIGHT = (1, 10, 11)    # I2C1: GP10 SDA, GP11 SCL
+
+# MEASURE on the table: what the sensor reads with a box in the bay, and
+# with the bay empty. The threshold goes between them.
+BAY_FULL_MM = 120           # CHECK - at or under this, a box is there
+BAY_CONFIRM_READS = 3       # far readings needed to call a bay empty
+BAY_TIMEOUT_MS = 400        # CHECK - must fit in the time one bay takes to
+                            # pass; too short and every bay reads full
