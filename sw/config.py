@@ -51,8 +51,11 @@ TURN_TRACKERS_FITTED = True
 
 LINE_TRACKER_L_PIN = 18     # CHECK - inner left
 LINE_TRACKER_R_PIN = 19     # CHECK - inner right
-TURN_TRACKER_L_PIN = 27     # CHECK - outer left,  ignored while unfitted
-TURN_TRACKER_R_PIN = 28     # CHECK - outer right, ignored while unfitted
+# These are GP22 and GP17 on the robot that actually runs (V3.5 of the
+# shared repo). They used to say GP27/GP28 here, which meant no junction
+# was ever detected on the real machine.
+TURN_TRACKER_L_PIN = 22     # outer left
+TURN_TRACKER_R_PIN = 17     # outer right
 
 # The PicoBot guide specifies TTL HIGH over white, LOW over black. Flip this
 # if the bench test reports the opposite - the AGV would otherwise steer away
@@ -168,7 +171,8 @@ MAGNET_CONFIRM_READS = 3    # a wrong pole is +5 instead of +15
 # Steady red for a north pole package, steady green for south (M1 spec).
 # Driven through the opto-isolator stage like every other LED.
 RED_LED_PIN = 21            # CHECK - GP21
-GREEN_LED_PIN = 22          # CHECK - GP22
+GREEN_LED_PIN = 27          # CHECK - GP27; moved off GP22, which the
+                            # left turn tracker uses on the real robot
 
 # ------------------------------------------------------- bay rangefinders
 # One side-facing rangefinder per side, for deciding whether a bay already
@@ -185,7 +189,10 @@ GREEN_LED_PIN = 22          # CHECK - GP22
 #   "none"     not fitted. The scan then reports UNKNOWN for every bay, and
 #              BAY_UNKNOWN_IS_OCCUPIED decides what the mission does about
 #              it. main() prints a warning at start-up.
-RANGER_MODE = "tof"         # a VL53L0X on each side, one per I2C bus
+# Superseded by drivers/distance.py + nav/bay.py, which measure at the
+# junction instead of continuously. Left at "none" so this claims no pins -
+# its I2C0 was on GP16/GP17, and GP17 is the right turn tracker.
+RANGER_MODE = "none"
 
 # Two VL53L0Xs both answer at 0x29, so they cannot share one bus without
 # XSHUT sequencing at boot. They go on separate buses instead: I2C0 on
@@ -194,9 +201,11 @@ RANGER_MODE = "tof"         # a VL53L0X on each side, one per I2C bus
 #
 # A VL53L0X and a TMF8x01 (0x41) would share one bus happily, if the team
 # ends up with one of each - which would free GP10/GP11 again.
+# The same two sensors DISTANCE_LEFT / DISTANCE_RIGHT describe, reached
+# through the older continuous-scan path. Keep them in step.
 RANGER_PINS = {
-    "left":  {"i2c_id": 0, "sda": 16, "scl": 17, "address": 0x29, "pin": 8},
-    "right": {"i2c_id": 1, "sda": 10, "scl": 11, "address": 0x29, "pin": 9},
+    "left":  {"i2c_id": 0, "sda": 8, "scl": 9, "address": 0x29, "pin": 2},
+    "right": {"i2c_id": 1, "sda": 10, "scl": 11, "address": 0x29, "pin": 3},
 }
 RANGER_I2C_FREQ = 400000
 RANGER_ACTIVE_HIGH = True   # CHECK - "digital" mode only
