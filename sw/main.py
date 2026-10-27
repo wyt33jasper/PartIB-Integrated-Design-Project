@@ -367,7 +367,6 @@ def build():
     beacon = FlashingLamp(config.AMBER_LED_PIN, config.AMBER_FLASH_MS)
     drive = Drive(config.LEFT_MOTOR_DIR_PIN, config.LEFT_MOTOR_PWM_PIN,
                   config.RIGHT_MOTOR_DIR_PIN, config.RIGHT_MOTOR_PWM_PIN,
-                  pwm_freq_hz=config.MOTOR_PWM_FREQ_HZ,
                   rotate_scale=config.TURN_ROTATE_SCALE)
     sensors = LineSensorArray(
         config.LINE_TRACKER_L_PIN,

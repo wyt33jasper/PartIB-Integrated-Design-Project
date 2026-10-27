@@ -133,9 +133,14 @@ def main():
     #   BAYS_PER_RACK is a fact about the table, and test_map.py already
     #   checks it against the map - six bays per shelf, twenty-four total.
     #   RIGHT and FULL are result codes, not measurements.
+    #   PWM_FREQ_HZ is where V3.5 keeps it, and nobody tunes it. It lived
+    #   in config.py briefly; that only added a parameter to Motor and
+    #   Drive and made their signatures differ from the robot's own code.
     allowed = {"sw/nav/destination.py:53 BAYS_PER_RACK = 6",
                "sw/nav/junction.py:45 RIGHT = 2",
-               "sw/nav/bay.py:28 FULL = 2"}
+               "sw/nav/bay.py:28 FULL = 2",
+               "sw/drivers/motor.py:10 PWM_FREQ_HZ = 1000",
+               "sw/drivers/gripper.py:25 PWM_FREQ_HZ = 1000"}
     check("module constants outside config.py",
           [c for c in module_constants() if c not in allowed], [])
 

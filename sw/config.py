@@ -29,11 +29,6 @@ LEFT_MOTOR_PWM_PIN = 5
 RIGHT_MOTOR_DIR_PIN = 7     # Motor 4 = Motor Driv2 #2, GP6/GP7
 RIGHT_MOTOR_PWM_PIN = 6
 
-# Drive PWM frequency. 1 kHz is the department's figure and a safe default
-# for the TB6612FNG, but it is worth tuning: too low and the motors whine
-# audibly at walking pace, too high and they lose torque at low duty, which
-# shows up as the AGV refusing to creep.
-MOTOR_PWM_FREQ_HZ = 1000    # CHECK - listen to it at FOLLOW_SPEED
 
 # ---------------------------------------------------------------- main loop
 LOOP_PERIOD_MS = 5          # target main-loop period; keeps the button poll
@@ -256,7 +251,6 @@ GRIPPER_CLOSE_MS = 2500     # CHECK - measured on the bench
 GRIPPER_OPEN_MS = 2500      # CHECK - measured on the bench
 GRIPPER_SPEED = 100
 GRIPPER_CLOSED_IS_EXTENDED = True   # CHECK - which way grips
-GRIPPER_PWM_FREQ_HZ = 1000  # CHECK - as MOTOR_PWM_FREQ_HZ, for the actuator
 
 # How long to keep closing on a package while waiting for the Hall pair to
 # confirm a pole. If it never confirms, the loading bay is empty or the

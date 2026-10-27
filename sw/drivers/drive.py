@@ -9,12 +9,10 @@ from drivers.motor import Motor
 
 class Drive:
     def __init__(self, left_dir, left_pwm, right_dir, right_pwm,
-                 pwm_freq_hz, rotate_scale,
+                 rotate_scale,
                  reverse_left=False, reverse_right=True):
-        self._left = Motor(left_dir, left_pwm, pwm_freq_hz,
-                           reverse=reverse_left)
-        self._right = Motor(right_dir, right_pwm, pwm_freq_hz,
-                            reverse=reverse_right)
+        self._left = Motor(left_dir, left_pwm, reverse=reverse_left)
+        self._right = Motor(right_dir, right_pwm, reverse=reverse_right)
         self._rotate_scale = rotate_scale
 
     def move(self, speed, steer=0):

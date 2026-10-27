@@ -7,11 +7,12 @@ never has to know that "stopped" means zero duty cycle.
 
 from machine import Pin, PWM
 
+PWM_FREQ_HZ = 1000          # as in V3.5; nobody tunes this
 _FULL_SCALE = 65535
 
 
 class Motor:
-    def __init__(self, dir_pin, pwm_pin, pwm_freq_hz, reverse=False):
+    def __init__(self, dir_pin, pwm_pin, reverse=False):
         """reverse=True flips the sense of this channel.
 
         The two drive motors face opposite ways on the chassis, so one of them
@@ -21,7 +22,7 @@ class Motor:
         """
         self._dir = Pin(dir_pin, Pin.OUT)
         self._pwm = PWM(Pin(pwm_pin))
-        self._pwm.freq(pwm_freq_hz)
+        self._pwm.freq(PWM_FREQ_HZ)
         self._pwm.duty_u16(0)
         self._reverse = reverse
 
