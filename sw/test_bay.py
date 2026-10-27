@@ -33,11 +33,11 @@ def test_bay():
                     debounce_ms=config.BUTTON_DEBOUNCE_MS)
     beacon = FlashingLamp(config.AMBER_LED_PIN, config.AMBER_FLASH_MS)
     drive = Drive(config.LEFT_MOTOR_DIR_PIN, config.LEFT_MOTOR_PWM_PIN,
-                  config.RIGHT_MOTOR_DIR_PIN, config.RIGHT_MOTOR_PWM_PIN,
-                  rotate_scale=config.TURN_ROTATE_SCALE)
+                  config.RIGHT_MOTOR_DIR_PIN, config.RIGHT_MOTOR_PWM_PIN)
     sensors = LineSensorArray(
         config.LINE_TRACKER_L_PIN, config.LINE_TRACKER_R_PIN,
-        config.TURN_TRACKER_L_PIN, config.TURN_TRACKER_R_PIN,
+        config.TURN_TRACKER_L_PIN if config.TURN_TRACKERS_FITTED else None,
+        config.TURN_TRACKER_R_PIN if config.TURN_TRACKERS_FITTED else None,
         white_is_high=config.LINE_WHITE_IS_HIGH)
     follower = LineFollower(drive, sensors,
                             speed=config.FOLLOW_SPEED,

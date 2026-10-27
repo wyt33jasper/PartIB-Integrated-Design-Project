@@ -108,8 +108,7 @@ class SimulatedAGV:
 
         self.drive = Drive(config.LEFT_MOTOR_DIR_PIN, config.LEFT_MOTOR_PWM_PIN,
                            config.RIGHT_MOTOR_DIR_PIN,
-                           config.RIGHT_MOTOR_PWM_PIN,
-                           rotate_scale=config.TURN_ROTATE_SCALE)
+                           config.RIGHT_MOTOR_PWM_PIN)
         self.sensors = LineSensorArray(
             config.LINE_TRACKER_L_PIN,
             config.LINE_TRACKER_R_PIN,

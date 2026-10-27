@@ -7,7 +7,7 @@ never has to know that "stopped" means zero duty cycle.
 
 from machine import Pin, PWM
 
-PWM_FREQ_HZ = 1000          # as in V3.5; nobody tunes this
+PWM_FREQ_HZ = 1000
 _FULL_SCALE = 65535
 
 

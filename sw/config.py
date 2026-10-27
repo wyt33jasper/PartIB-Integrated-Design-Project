@@ -93,10 +93,9 @@ BAY_REVERSE_MS = 3000       # measured on the table
 
 TURN_SPEED = 60             # in-place turn speed, 0-100; measured on the table
 
-# The wheels counter-rotate at this fraction of TURN_SPEED. Found on the
-# table during M1: full speed overshot the line on every turn. Lower it if
-# the AGV still swings past the new line, raise it if a turn times out.
-TURN_ROTATE_SCALE = 0.8     # measured on the table
+# The counter-rotation scale that stops the AGV overshooting the line on a
+# turn is the 0.8 inside Drive.rotate(), kept there so drivers/drive.py
+# stays byte-identical to the robot's own copy.
 TURN_TIMEOUT_MS = 6000      # stop and report an error if the line is not found.
                             # Must exceed DRIVE_OVER_MS + COMMIT_MS below, or a
                             # turn times out before it has begun looking.
